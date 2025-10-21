@@ -5,117 +5,111 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sistema de Gestión de Turnos</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-    @media print { .no-print { display: none !important; } body { background: white; } button { display: none !important; } }
-  </style>
 </head>
 <body class="bg-gray-50">
   <div id="app"></div>
 
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-    import { getFirestore, doc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+    import { getFirestore, doc, setDoc, onSnapshot, deleteField } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
+    // FIREBASE CONFIG
     const firebaseConfig = {
-      apiKey: "AIzaSyBfM4YLWkxNCg8SoTrTwqHd-_r386PSPF",
+      apiKey: "AIzaSyBTM4YLyNUxNCg8SoTrTwqHd-_r386PSPE",
       authDomain: "turnos-caba-cordoba.firebaseapp.com",
       projectId: "turnos-caba-cordoba",
       storageBucket: "turnos-caba-cordoba.firebasestorage.app",
-      messagingSenderId: "80133008332",
-      appId: "1:80133008332:web:67ea89fee2ef6e875de3ca"
+      messagingSenderId: "801338083327",
+      appId: "1:801338083327:web:67ea89fee2ef6e875de3ca"
     };
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    let datos = {
-      caba6x3: {},
-      caba5x1: {},
-      cordobaSabados: {},
-      licencias: {}
-    };
-    
+    // ===== ESTADO GLOBAL =====
+    let licencias = {}; // { personaId: { '2025-10-15': 'vacaciones' } }
+    let tareas = { correos: {}, holdeos: {} };
     let vistaActual = 'dashboard';
     let mesSeleccionado = '2025-10';
-    let cargando = true;
+    let mostrarFormLicencia = false;
     let mensaje = '';
 
-    const equipoCaba6x3 = [
-      { id: 'gabriel', nombre: 'Palazzini, Gabriel' },
-      { id: 'meoniz', nombre: 'Meoniz, Nicolás' },
-      { id: 'sergio', nombre: 'Palacios, Sergio' }
-    ];
-
-    const equipoCaba5x1 = [
-      { id: 'lottero', nombre: 'Lottero, Lucas' },
-      { id: 'lopez', nombre: 'López, Deborah' },
-      { id: 'capdet', nombre: 'Capdet, Gustavo' },
-      { id: 'torales', nombre: 'Torales, Andrés' },
-      { id: 'fernandez', nombre: 'Fernández, Nicolás' }
-    ];
-
-    const equipoCordoba = [
-      { id: 'guzman', nombre: 'Guzmán, Luis' },
-      { id: 'luna', nombre: 'Luna, Martín' },
-      { id: 'diaz_s', nombre: 'Díaz, Sebastián' },
-      { id: 'poles', nombre: 'Poles, Marina' },
-      { id: 'diaz_j', nombre: 'Díaz, Jorge' },
-      { id: 'allende', nombre: 'Allende, Alejandro' },
-      { id: 'pereyra', nombre: 'Pereyra, José' },
-      { id: 'spicogna', nombre: 'Spicogna, Ariel' },
-      { id: 'garrafa', nombre: 'Garrafa, Nico' },
-      { id: 'baldamus', nombre: 'Baldamus, Gabriela' }
-    ];
-
-    const meses = [
-      { key: '2025-10', nombre: 'Octubre 2025', dias: 31, inicioSemana: 3 },
-      { key: '2025-11', nombre: 'Noviembre 2025', dias: 30, inicioSemana: 6 },
-      { key: '2025-12', nombre: 'Diciembre 2025', dias: 31, inicioSemana: 1 },
-      { key: '2026-01', nombre: 'Enero 2026', dias: 31, inicioSemana: 4 },
-      { key: '2026-02', nombre: 'Febrero 2026', dias: 28, inicioSemana: 0 },
-      { key: '2026-03', nombre: 'Marzo 2026', dias: 31, inicioSemana: 0 },
-      { key: '2026-04', nombre: 'Abril 2026', dias: 30, inicioSemana: 3 },
-      { key: '2026-05', nombre: 'Mayo 2026', dias: 31, inicioSemana: 5 },
-      { key: '2026-06', nombre: 'Junio 2026', dias: 30, inicioSemana: 1 }
-    ];
-
-    const feriados = {
-      '2025-10': [12], '2025-11': [20], '2025-12': [8, 25],
-      '2026-01': [1], '2026-02': [16, 17], '2026-03': [24],
-      '2026-04': [2, 3], '2026-05': [1, 25], '2026-06': [15]
+    // ===== CONFIGURACIÓN =====
+    const FERIADOS = {
+      '2025-10': [12], // 12 oct - Respeto a la Diversidad
+      '2025-11': [20], // 20 nov - Soberanía Nacional
+      '2025-12': [8, 25], // 8 dic - Inmaculada, 25 dic - Navidad
+      '2026-01': [1], // 1 ene - Año Nuevo
+      '2026-02': [16, 17], // Carnaval
+      '2026-03': [24], // Memoria Verdad y Justicia
+      '2026-04': [2, 3], // Malvinas, Jueves Santo
+      '2026-05': [1, 25], // Trabajador, Revolución de Mayo
+      '2026-06': [15] // Gral. Güemes
     };
 
-    // Rotación CABA 5+1 (ciclo de 5 semanas)
-    const rotacionCaba5x1 = ['lopez', 'capdet', 'torales', 'fernandez', 'lottero'];
-    
-    // Rotación Córdoba (ciclo de 4 semanas)
-    const rotacionCordoba = [
+    const EQUIPOS = {
+      caba_5x1: [
+        { id: 'lottero', nombre: 'Lottero, Lucas', turno: 'mañana' },
+        { id: 'lopez', nombre: 'López, Deborah', turno: 'mañana', excluirCorreos: true },
+        { id: 'capdet', nombre: 'Capdet, Gustavo', turno: 'mañana' },
+        { id: 'torales', nombre: 'Torales, Andrés', turno: 'mañana' },
+        { id: 'fernandez', nombre: 'Fernández, Nicolás', turno: 'tarde' }
+      ],
+      caba_6x3: [
+        { id: 'gabriel', nombre: 'Palazzini, Gabriel', turno: 'mañana' },
+        { id: 'meoniz', nombre: 'Meoniz, Nicolás', turno: 'tarde' },
+        { id: 'sergio', nombre: 'Palacios, Sergio', turno: 'mañana' }
+      ],
+      cordoba: [
+        { id: 'guzman', nombre: 'Guzmán, Luis' },
+        { id: 'luna', nombre: 'Luna, Martín' },
+        { id: 'diaz_s', nombre: 'Díaz, Sebastián' },
+        { id: 'poles', nombre: 'Poles, Marina' },
+        { id: 'diaz_j', nombre: 'Díaz, Jorge' },
+        { id: 'allende', nombre: 'Allende, Alejandro' },
+        { id: 'pereyra', nombre: 'Pereyra, José' },
+        { id: 'spicogna', nombre: 'Spicogna, Ariel' },
+        { id: 'garrafa', nombre: 'Garrafa, Nico' },
+        { id: 'baldamus', nombre: 'Baldamus, Gabriela' }
+      ]
+    };
+
+    const TODOS_EMPLEADOS = [...EQUIPOS.caba_5x1, ...EQUIPOS.caba_6x3, ...EQUIPOS.cordoba];
+
+    const ROTACION_CABA_SABADOS = ['lopez', 'capdet', 'torales', 'fernandez', 'lottero'];
+    const ROTACION_CORDOBA_SABADOS = [
       ['luna', 'spicogna'],
       ['diaz_s', 'diaz_j', 'baldamus', 'allende'],
       ['guzman', 'pereyra'],
       ['poles']
     ];
 
-    onSnapshot(doc(db, 'sistema', 'datos'), (docSnap) => {
+    const FRANCOS_6X3 = {
+      gabriel: [11, 12, 13, 21, 22, 23, 30, 31],
+      meoniz: [11, 12, 13, 21, 22, 23, 30, 31],
+      sergio: [6, 7, 8, 15, 16, 17, 24, 25, 26]
+    };
+
+    // ===== FIREBASE SYNC =====
+    onSnapshot(doc(db, 'turnos', 'datos'), (docSnap) => {
       if (docSnap.exists()) {
-        datos = docSnap.data();
+        const data = docSnap.data();
+        licencias = data.licencias || {};
+        tareas = data.tareas || { correos: {}, holdeos: {} };
       }
-      cargando = false;
-      renderApp();
-    }, (error) => {
-      console.error('Error Firebase:', error);
-      cargando = false;
       renderApp();
     });
 
     async function guardarFirebase() {
       try {
-        await setDoc(doc(db, 'sistema', 'datos'), datos);
-        mostrarMensaje('✅ Sincronizado');
+        await setDoc(doc(db, 'turnos', 'datos'), {
+          licencias,
+          tareas,
+          ultimaActualizacion: new Date().toISOString()
+        });
+        mostrarMensaje('✅ Guardado en Firebase');
       } catch (error) {
-        console.error('Error:', error);
+        console.error('Error Firebase:', error);
         mostrarMensaje('❌ Error al guardar');
       }
     }
@@ -123,451 +117,387 @@
     function mostrarMensaje(msg) {
       mensaje = msg;
       renderApp();
-      setTimeout(() => { mensaje = ''; renderApp(); }, 2000);
+      setTimeout(() => { mensaje = ''; renderApp(); }, 3000);
     }
 
-    window.cambiarVista = function(vista) {
-      vistaActual = vista;
-      renderApp();
-    };
-
-    window.cambiarMes = function(mes) {
-      mesSeleccionado = mes;
-      renderApp();
-    };
-
-    // ALGORITMO 6X3
-    function calcularRotacion6x3(diasMes, offset) {
-      const rot = {};
-      const ciclo = [true, true, true, true, true, true, false, false, false];
-      for (let d = 1; d <= diasMes; d++) {
-        rot[d] = ciclo[(offset + d - 1) % 9];
-      }
-      return rot;
+    // ===== UTILIDADES =====
+    function getNombreDia(dia) {
+      const [año, mes] = mesSeleccionado.split('-');
+      const fecha = new Date(año, mes - 1, dia);
+      return ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][fecha.getDay()];
     }
 
-    function getRotaciones6x3(mesKey) {
-      const mes = meses.find(m => m.key === mesKey);
-      const offsets = {
-        '2025-10': 4, '2025-11': 8, '2025-12': 2,
-        '2026-01': 6, '2026-02': 1, '2026-03': 2,
-        '2026-04': 6, '2026-05': 0, '2026-06': 4
-      };
-      return calcularRotacion6x3(mes.dias, offsets[mesKey] || 4);
+    function esSabado(dia) { return getNombreDia(dia) === 'Sáb'; }
+    function esDomingo(dia) { return getNombreDia(dia) === 'Dom'; }
+    function esFeriado(dia) { return (FERIADOS[mesSeleccionado] || []).includes(dia); }
+
+    function getDiasEnMes() {
+      const [año, mes] = mesSeleccionado.split('-');
+      return new Date(año, mes, 0).getDate();
     }
 
-    function getNombreDia(dia, mesKey) {
-      const mes = meses.find(m => m.key === mesKey);
-      const diaSemana = (mes.inicioSemana + dia - 1) % 7;
-      return ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][diaSemana];
+    function getFechaKey(dia) {
+      const [año, mes] = mesSeleccionado.split('-');
+      return `${año}-${mes}-${String(dia).padStart(2, '0')}`;
     }
 
-    function esSabado(dia, mesKey) {
-      return getNombreDia(dia, mesKey) === 'Sáb';
-    }
-
-    // ALGORITMO SÁBADOS CABA 5+1
-    function getSabadoCaba5x1(fecha) {
-      const referencia = new Date('2025-10-04'); // Deborah
-      const diff = Math.floor((fecha - referencia) / (7 * 24 * 60 * 60 * 1000));
-      return rotacionCaba5x1[diff % 5];
-    }
-
-    // ALGORITMO SÁBADOS CÓRDOBA
-    function getSabadosCordoba(fecha) {
-      const referencia = new Date('2025-10-04'); // Luna, Spicogna
-      const diff = Math.floor((fecha - referencia) / (7 * 24 * 60 * 60 * 1000));
-      return rotacionCordoba[diff % 4];
-    }
-
-    // GESTIÓN LICENCIAS
-    window.toggleLicencia = async function(persona, dia, tipo) {
-      const key = `${mesSeleccionado}-${dia}`;
-      if (!datos.licencias[persona]) datos.licencias[persona] = {};
+    function trabaja5x1(personaId, dia) {
+      if (esDomingo(dia)) return false;
+      if (!esSabado(dia)) return true;
       
-      if (datos.licencias[persona][key] === tipo) {
-        delete datos.licencias[persona][key];
-      } else {
-        datos.licencias[persona][key] = tipo;
-      }
+      const primerSabado = new Date(2025, 9, 4);
+      const [año, mes] = mesSeleccionado.split('-');
+      const fechaActual = new Date(año, mes - 1, dia);
+      const difDias = Math.floor((fechaActual - primerSabado) / (24 * 60 * 60 * 1000));
+      const semanas = Math.floor(difDias / 7);
+      const indice = semanas % ROTACION_CABA_SABADOS.length;
       
+      return ROTACION_CABA_SABADOS[indice] === personaId;
+    }
+
+    function trabajaCordoba(personaId, dia) {
+      if (esDomingo(dia)) return false;
+      if (!esSabado(dia)) return true;
+      
+      const primerSabado = new Date(2025, 9, 4);
+      const [año, mes] = mesSeleccionado.split('-');
+      const fechaActual = new Date(año, mes - 1, dia);
+      const difDias = Math.floor((fechaActual - primerSabado) / (24 * 60 * 60 * 1000));
+      const semanas = Math.floor(difDias / 7);
+      const indice = semanas % ROTACION_CORDOBA_SABADOS.length;
+      
+      return ROTACION_CORDOBA_SABADOS[indice].includes(personaId);
+    }
+
+    function trabaja6x3(personaId, dia) {
+      return !FRANCOS_6X3[personaId]?.includes(dia);
+    }
+
+    function getTipoTrabajo(personaId) {
+      if (EQUIPOS.caba_6x3.find(p => p.id === personaId)) return '6x3';
+      if (EQUIPOS.cordoba.find(p => p.id === personaId)) return 'cordoba';
+      return '5x1';
+    }
+
+    function trabajaDia(personaId, dia) {
+      const tipo = getTipoTrabajo(personaId);
+      if (tipo === '6x3') return trabaja6x3(personaId, dia);
+      if (tipo === 'cordoba') return trabajaCordoba(personaId, dia);
+      return trabaja5x1(personaId, dia);
+    }
+
+    // ===== EVENTOS =====
+    window.cambiarVista = (vista) => { vistaActual = vista; renderApp(); };
+    window.cambiarMes = (mes) => { mesSeleccionado = mes; renderApp(); };
+    window.toggleFormLicencia = () => { mostrarFormLicencia = !mostrarFormLicencia; renderApp(); };
+
+    window.agregarLicencia = async () => {
+      const persona = document.getElementById('selectPersona').value;
+      const tipo = document.getElementById('selectTipo').value;
+      const fechaInicio = document.getElementById('fechaInicio').value;
+      const fechaFin = document.getElementById('fechaFin').value;
+
+      if (!persona || !tipo || !fechaInicio) {
+        alert('Completa todos los campos requeridos');
+        return;
+      }
+
+      const inicio = new Date(fechaInicio);
+      const fin = fechaFin ? new Date(fechaFin) : inicio;
+
+      if (!licencias[persona]) licencias[persona] = {};
+
+      for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
+        const key = d.toISOString().split('T')[0];
+        licencias[persona][key] = tipo;
+      }
+
       await guardarFirebase();
+      mostrarFormLicencia = false;
       renderApp();
     };
 
-    function getLicencia(persona, dia) {
-      const key = `${mesSeleccionado}-${dia}`;
-      return datos.licencias[persona]?.[key] || null;
+    window.eliminarLicencia = async (personaId, fecha) => {
+      if (licencias[personaId] && licencias[personaId][fecha]) {
+        delete licencias[personaId][fecha];
+        if (Object.keys(licencias[personaId]).length === 0) {
+          delete licencias[personaId];
+        }
+        await guardarFirebase();
+      }
+    };
+
+    // ===== RENDERIZADORES =====
+    function renderFormLicencia() {
+      if (!mostrarFormLicencia) return '';
+
+      return `
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onclick="if(event.target === this) toggleFormLicencia()">
+          <div class="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full m-4">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-2xl font-bold">➕ Agregar Licencia</h3>
+              <button onclick="toggleFormLicencia()" class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
+            </div>
+
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-semibold mb-2">👤 Persona</label>
+                <select id="selectPersona" class="w-full p-3 border-2 border-gray-300 rounded-lg">
+                  <option value="">Seleccionar...</option>
+                  ${TODOS_EMPLEADOS.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('')}
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold mb-2">📋 Tipo de Licencia</label>
+                <select id="selectTipo" class="w-full p-3 border-2 border-gray-300 rounded-lg">
+                  <option value="">Seleccionar...</option>
+                  <option value="vacaciones">🏖️ Vacaciones</option>
+                  <option value="enfermedad">🏥 Enfermedad</option>
+                  <option value="examen">📚 Examen</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold mb-2">📅 Fecha Inicio</label>
+                <input type="date" id="fechaInicio" class="w-full p-3 border-2 border-gray-300 rounded-lg">
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold mb-2">📅 Fecha Fin (opcional)</label>
+                <input type="date" id="fechaFin" class="w-full p-3 border-2 border-gray-300 rounded-lg">
+              </div>
+
+              <button onclick="agregarLicencia()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg">
+                💾 Guardar Licencia
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
     }
 
-    // RENDER CABA 6X3
-    function renderCaba6x3() {
-      const mes = meses.find(m => m.key === mesSeleccionado);
-      const rotacion = getRotaciones6x3(mesSeleccionado);
-      const feriadosMes = feriados[mesSeleccionado] || [];
+    function renderDashboard() {
+      const hoy = new Date();
+      const diaHoy = hoy.getDate();
+      const mesHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+
+      // Obtener licencias de hoy
+      const licenciasHoy = [];
+      for (const [personaId, fechas] of Object.entries(licencias)) {
+        const fechaKey = `${mesHoy}-${String(diaHoy).padStart(2, '0')}`;
+        if (fechas[fechaKey]) {
+          const persona = TODOS_EMPLEADOS.find(p => p.id === personaId);
+          licenciasHoy.push({ nombre: persona.nombre, tipo: fechas[fechaKey] });
+        }
+      }
+
+      // Obtener feriados del mes actual
+      const feriadosMes = FERIADOS[mesSeleccionado] || [];
+      const diasMes = getDiasEnMes();
       
-      let html = `
+      // Calcular quién trabajó cada feriado
+      const feriadosData = feriadosMes.map(dia => {
+        const trabajadores = TODOS_EMPLEADOS.filter(p => {
+          const fechaKey = getFechaKey(dia);
+          const tieneLicencia = licencias[p.id]?.[fechaKey];
+          return !tieneLicencia && trabajaDia(p.id, dia);
+        });
+        return { dia, trabajadores };
+      });
+
+      return `
         <div class="max-w-7xl mx-auto p-6">
-          <div class="flex items-center justify-between mb-6">
-            <h2 class="text-3xl font-bold text-gray-800">CABA - Rotación 6x3</h2>
-            <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg font-semibold">
-              ${meses.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
-            </select>
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-3xl font-bold text-gray-800">📊 Dashboard Principal</h2>
+            <button onclick="toggleFormLicencia()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold shadow-lg">
+              ➕ Agregar Licencia
+            </button>
           </div>
 
-          ${mensaje ? `<div class="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-semibold">${mensaje}</div>` : ''}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <h3 class="text-xl font-bold mb-4 text-blue-600">🏖️ Licencias Hoy (${diaHoy})</h3>
+              ${licenciasHoy.length > 0 ? `
+                <div class="space-y-2">
+                  ${licenciasHoy.map(l => `
+                    <div class="p-3 rounded ${
+                      l.tipo === 'vacaciones' ? 'bg-purple-100' :
+                      l.tipo === 'enfermedad' ? 'bg-red-100' : 'bg-blue-100'
+                    }">
+                      <span class="font-semibold">${l.nombre}</span>
+                      <span class="ml-2 text-sm">${
+                        l.tipo === 'vacaciones' ? '🏖️ Vacaciones' :
+                        l.tipo === 'enfermedad' ? '🏥 Enfermedad' : '📚 Examen'
+                      }</span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : '<p class="text-gray-500">Sin licencias registradas para hoy</p>'}
+            </div>
 
-          <div class="bg-white rounded-lg shadow-md overflow-x-auto mb-6">
-            <table class="w-full">
-              <thead>
-                <tr class="bg-gray-700 text-white">
-                  <th class="p-3 text-left">Día</th>
-                  ${equipoCaba6x3.map(p => `<th class="p-3 text-center">${p.nombre}</th>`).join('')}
-                </tr>
-              </thead>
-              <tbody>
-      `;
-
-      for (let dia = 1; dia <= mes.dias; dia++) {
-        const esFeriado = feriadosMes.includes(dia);
-        const nombreDia = getNombreDia(dia, mesSeleccionado);
-        const esFinde = nombreDia === 'Sáb' || nombreDia === 'Dom';
-        
-        html += `<tr class="border-b ${esFinde ? 'bg-blue-50' : ''} ${esFeriado ? 'bg-yellow-50' : ''}">`;
-        html += `<td class="p-3 font-medium">
-          <div class="flex items-center gap-2">
-            <span class="font-bold">${dia}</span>
-            <span class="text-gray-600 text-sm">${nombreDia}</span>
-            ${esFeriado ? '<span class="text-xs text-yellow-700 font-semibold">(Feriado)</span>' : ''}
-          </div>
-        </td>`;
-
-        equipoCaba6x3.forEach(persona => {
-          const licencia = getLicencia(persona.id, dia);
-          const esFranco = !rotacion[dia];
-          
-          let bgColor = '';
-          let texto = '';
-          
-          if (licencia === 'vacaciones') {
-            bgColor = 'bg-purple-500 text-white font-bold';
-            texto = '🏖️ VACACIONES';
-          } else if (licencia === 'enfermedad') {
-            bgColor = 'bg-red-400 text-white font-bold';
-            texto = '🏥 ENFERMEDAD';
-          } else if (licencia === 'examen') {
-            bgColor = 'bg-blue-400 text-white font-bold';
-            texto = '📚 EXAMEN';
-          } else if (esFranco) {
-            bgColor = 'bg-pink-400 text-white font-semibold';
-            texto = 'FRANCO';
-          } else {
-            texto = 'Trabaja';
-          }
-
-          html += `<td class="p-2 text-center ${bgColor}">
-            <div class="relative group">
-              <button class="w-full px-2 py-1 rounded">${texto}</button>
-              <div class="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded p-2 mt-1 z-10 whitespace-nowrap left-0">
-                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'vacaciones')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏖️ Vacaciones</button>
-                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'enfermedad')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏥 Enfermedad</button>
-                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'examen')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">📚 Examen</button>
-                ${licencia ? '<button onclick="toggleLicencia(\'' + persona.id + '\', ' + dia + ', null)" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded text-red-400">❌ Quitar</button>' : ''}
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <h3 class="text-xl font-bold mb-4 text-purple-600">📧 Correos CABA</h3>
+              <div class="text-gray-600">
+                <p class="mb-2">🌅 <strong>Mañana:</strong> Por asignar</p>
+                <p>🌆 <strong>Tarde:</strong> Por asignar</p>
               </div>
             </div>
-          </td>`;
-        });
+          </div>
 
-        html += '</tr>';
-      }
-
-      html += `</tbody></table></div>
-          <div class="bg-white rounded-lg shadow-md p-4">
-            <h3 class="font-semibold mb-3">Leyenda:</h3>
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-pink-400 rounded"></div><span>Franco</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-purple-500 rounded"></div><span>Vacaciones</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-red-400 rounded"></div><span>Enfermedad</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-blue-400 rounded"></div><span>Examen</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-yellow-50 border rounded"></div><span>Feriado</span></div>
-            </div>
-            <p class="text-xs text-gray-500 mt-3">💡 Hover sobre cualquier día para asignar licencias</p>
+          <div class="bg-white rounded-lg shadow-md p-6">
+            <h3 class="text-xl font-bold mb-4">🎉 Feriados de ${mesSeleccionado}</h3>
+            ${feriadosData.length > 0 ? `
+              <div class="space-y-4">
+                ${feriadosData.map(f => `
+                  <div class="border-l-4 border-yellow-500 bg-yellow-50 p-4 rounded">
+                    <div class="font-bold text-lg mb-2">Día ${f.dia} - ${getNombreDia(f.dia)}</div>
+                    <div class="text-sm text-gray-700">
+                      <strong>Trabajaron (${f.trabajadores.length}):</strong>
+                      ${f.trabajadores.length > 0 ? 
+                        f.trabajadores.map(t => t.nombre).join(', ') :
+                        'Nadie trabajó este feriado'
+                      }
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : '<p class="text-gray-500">No hay feriados en este mes</p>'}
           </div>
         </div>
       `;
-
-      return html;
     }
 
-    // RENDER CABA 5+1
-    function renderCaba5x1() {
-      const mes = meses.find(m => m.key === mesSeleccionado);
-      const feriadosMes = feriados[mesSeleccionado] || [];
-      
-      let html = `
-        <div class="max-w-7xl mx-auto p-6">
-          <div class="flex items-center justify-between mb-6">
-            <h2 class="text-3xl font-bold text-gray-800">CABA - Sábados 5+1</h2>
-            <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg font-semibold">
-              ${meses.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
-            </select>
+    function renderCelda(personaId, dia) {
+      const fechaKey = getFechaKey(dia);
+      const licencia = licencias[personaId]?.[fechaKey];
+      const trabaja = trabajaDia(personaId, dia);
+      const esSab = esSabado(dia);
+      const esDom = esDomingo(dia);
+
+      let bgColor = 'bg-gray-200';
+      let texto = '';
+
+      if (licencia) {
+        bgColor = licencia === 'vacaciones' ? 'bg-purple-500 text-white' :
+                  licencia === 'enfermedad' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white';
+        texto = licencia === 'vacaciones' ? '🏖️' :
+                licencia === 'enfermedad' ? '🏥' : '📚';
+      } else if (esDom) {
+        bgColor = 'bg-gray-300';
+        texto = 'Dom';
+      } else if (!trabaja && !esSab) {
+        bgColor = 'bg-orange-400 text-white';
+        texto = 'F';
+      } else if (esSab && trabaja) {
+        bgColor = 'bg-yellow-400 text-white font-bold';
+        texto = 'Sáb';
+      } else if (esSab && !trabaja) {
+        bgColor = 'bg-green-200';
+        texto = '';
+      } else if (trabaja) {
+        bgColor = 'bg-green-100 border-2 border-green-400';
+        texto = '✓';
+      }
+
+      const deleteBtn = licencia ? `
+        <button onclick="eliminarLicencia('${personaId}', '${fechaKey}')" 
+                class="absolute top-0 right-0 bg-red-600 text-white text-xs px-1 rounded-bl opacity-0 group-hover:opacity-100">
+          ×
+        </button>
+      ` : '';
+
+      return `
+        <td class="p-2 text-center relative group">
+          <div class="${bgColor} rounded p-2 text-sm font-semibold relative">
+            ${texto}
+            ${deleteBtn}
           </div>
+        </td>
+      `;
+    }
 
-          ${mensaje ? `<div class="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-semibold">${mensaje}</div>` : ''}
+    function renderGrilla(titulo, equipo, tipo) {
+      const diasMes = getDiasEnMes();
+      const feriados = FERIADOS[mesSeleccionado] || [];
 
-          <div class="bg-white rounded-lg shadow-md overflow-x-auto mb-6">
+      return `
+        <div class="max-w-7xl mx-auto p-6">
+          <h2 class="text-3xl font-bold mb-6">${titulo}</h2>
+          
+          <div class="bg-white rounded-lg shadow-md overflow-x-auto">
             <table class="w-full">
               <thead>
                 <tr class="bg-gray-700 text-white">
-                  <th class="p-3 text-left">Día</th>
-                  ${equipoCaba5x1.map(p => `<th class="p-3 text-center">${p.nombre}</th>`).join('')}
+                  <th class="p-3 text-left sticky left-0 bg-gray-700">Día</th>
+                  ${equipo.map(p => `<th class="p-3 text-center">${p.nombre}</th>`).join('')}
                 </tr>
               </thead>
               <tbody>
-      `;
-
-      for (let dia = 1; dia <= mes.dias; dia++) {
-        const nombreDia = getNombreDia(dia, mesSeleccionado);
-        const esFeriado = feriadosMes.includes(dia);
-        const sabado = esSabado(dia, mesSeleccionado);
-        const esFinde = nombreDia === 'Sáb' || nombreDia === 'Dom';
-        
-        html += `<tr class="border-b ${esFinde ? 'bg-blue-50' : ''} ${esFeriado ? 'bg-yellow-50' : ''}">`;
-        html += `<td class="p-3 font-medium">
-          <div class="flex items-center gap-2">
-            <span class="font-bold">${dia}</span>
-            <span class="text-gray-600 text-sm">${nombreDia}</span>
-            ${esFeriado ? '<span class="text-xs text-yellow-700 font-semibold">(Feriado)</span>' : ''}
+                ${Array.from({length: diasMes}, (_, i) => i + 1).map(dia => {
+                  const nombreDia = getNombreDia(dia);
+                  const esFer = feriados.includes(dia);
+                  const esFin = nombreDia === 'Sáb' || nombreDia === 'Dom';
+                  
+                  return `
+                    <tr class="border-b ${esFin ? 'bg-blue-50' : ''} ${esFer ? 'bg-yellow-100' : ''}">
+                      <td class="p-3 font-bold sticky left-0 ${esFin ? 'bg-blue-50' : esFer ? 'bg-yellow-100' : 'bg-white'}">
+                        ${dia} ${nombreDia} ${esFer ? '🎉' : ''}
+                      </td>
+                      ${equipo.map(p => renderCelda(p.id, dia)).join('')}
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
           </div>
-        </td>`;
 
-        let personaEnSabado = null;
-        if (sabado) {
-          const fecha = new Date(mesSeleccionado + '-' + String(dia).padStart(2, '0'));
-          personaEnSabado = getSabadoCaba5x1(fecha);
-        }
-
-        equipoCaba5x1.forEach(persona => {
-          const licencia = getLicencia(persona.id, dia);
-          const trabajaSabado = sabado && personaEnSabado === persona.id;
-          const domingo = nombreDia === 'Dom';
-          
-          let bgColor = '';
-          let texto = '';
-          
-          if (licencia === 'vacaciones') {
-            bgColor = 'bg-purple-500 text-white font-bold';
-            texto = '🏖️ VACACIONES';
-          } else if (licencia === 'enfermedad') {
-            bgColor = 'bg-red-400 text-white font-bold';
-            texto = '🏥 ENFERMEDAD';
-          } else if (licencia === 'examen') {
-            bgColor = 'bg-blue-400 text-white font-bold';
-            texto = '📚 EXAMEN';
-          } else if (domingo) {
-            bgColor = 'bg-gray-300 text-gray-600';
-            texto = 'Franco';
-          } else if (trabajaSabado) {
-            bgColor = 'bg-orange-500 text-white font-bold';
-            texto = 'SÁBADO';
-          } else if (sabado) {
-            bgColor = 'bg-green-400 text-white';
-            texto = 'Franco';
-          } else {
-            texto = 'Trabaja';
-          }
-
-          html += `<td class="p-2 text-center ${bgColor}">
-            <div class="relative group">
-              <button class="w-full px-2 py-1 rounded text-sm">${texto}</button>
-              ${!domingo ? `<div class="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded p-2 mt-1 z-10 whitespace-nowrap left-0">
-                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'vacaciones')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏖️ Vacaciones</button>
-                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'enfermedad')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏥 Enfermedad</button>
-                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'examen')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">📚 Examen</button>
-                ${licencia ? '<button onclick="toggleLicencia(\'' + persona.id + '\', ' + dia + ', null)" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded text-red-400">❌ Quitar</button>' : ''}
-              </div>` : ''}
-            </div>
-          </td>`;
-        });
-
-        html += '</tr>';
-      }
-
-      html += `</tbody></table></div>
-          <div class="bg-white rounded-lg shadow-md p-4">
-            <h3 class="font-semibold mb-3">Leyenda:</h3>
-            <div class="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-orange-500 rounded"></div><span>Sábado (trabaja)</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-green-400 rounded"></div><span>Sábado franco</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-purple-500 rounded"></div><span>Vacaciones</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-red-400 rounded"></div><span>Enfermedad</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-blue-400 rounded"></div><span>Examen</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-gray-300 rounded"></div><span>Domingo</span></div>
-            </div>
-            <p class="text-xs text-gray-500 mt-3">Rotación 5+1: Cada persona trabaja 1 sábado cada 5 semanas</p>
+          <div class="mt-4 bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+            <p class="text-sm text-blue-800">
+              <strong>Leyenda:</strong> 
+              ✓ Trabaja | F Franco | 🏖️ Vacaciones | 🏥 Enfermedad | 📚 Examen | 
+              Hover sobre licencias para eliminar
+            </p>
           </div>
         </div>
       `;
-
-      return html;
-    }
-
-    // RENDER CÓRDOBA
-    function renderCordoba() {
-      const mes = meses.find(m => m.key === mesSeleccionado);
-      const feriadosMes = feriados[mesSeleccionado] || [];
-      
-      let html = `
-        <div class="max-w-7xl mx-auto p-6">
-          <div class="flex items-center justify-between mb-6">
-            <h2 class="text-3xl font-bold text-gray-800">Córdoba - Sábados</h2>
-            <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg font-semibold">
-              ${meses.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
-            </select>
-          </div>
-
-          ${mensaje ? `<div class="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-semibold">${mensaje}</div>` : ''}
-
-          <div class="bg-white rounded-lg shadow-md overflow-x-auto mb-6">
-            <table class="w-full">
-              <thead>
-                <tr class="bg-gray-700 text-white">
-                  <th class="p-3 text-left">Día</th>
-                  ${equipoCordoba.map(p => `<th class="p-3 text-center text-xs">${p.nombre.split(',')[0]}</th>`).join('')}
-                </tr>
-              </thead>
-              <tbody>
-      `;
-
-      for (let dia = 1; dia <= mes.dias; dia++) {
-        const nombreDia = getNombreDia(dia, mesSeleccionado);
-        const esFeriado = feriadosMes.includes(dia);
-        const sabado = esSabado(dia, mesSeleccionado);
-        const esFinde = nombreDia === 'Sáb' || nombreDia === 'Dom';
-        
-        html += `<tr class="border-b ${esFinde ? 'bg-blue-50' : ''} ${esFeriado ? 'bg-yellow-50' : ''}">`;
-        html += `<td class="p-3 font-medium">
-          <div class="flex items-center gap-2">
-            <span class="font-bold">${dia}</span>
-            <span class="text-gray-600 text-sm">${nombreDia}</span>
-            ${esFeriado ? '<span class="text-xs text-yellow-700 font-semibold">(Feriado)</span>' : ''}
-          </div>
-        </td>`;
-
-        let personasEnSabado = [];
-        if (sabado) {
-          const fecha = new Date(mesSeleccionado + '-' + String(dia).padStart(2, '0'));
-          personasEnSabado = getSabadosCordoba(fecha);
-        }
-
-        equipoCordoba.forEach(persona => {
-          const licencia = getLicencia(persona.id, dia);
-          const trabajaSabado = sabado && personasEnSabado.includes(persona.id);
-          const domingo = nombreDia === 'Dom';
-          
-          let bgColor = '';
-          let texto = '';
-          
-          if (licencia === 'vacaciones') {
-            bgColor = 'bg-purple-500 text-white font-bold';
-            texto = '🏖️';
-          } else if (licencia === 'enfermedad') {
-            bgColor = 'bg-red-400 text-white font-bold';
-            texto = '🏥';
-          } else if (licencia === 'examen') {
-            bgColor = 'bg-blue-400 text-white font-bold';
-            texto = '📚';
-          } else if (domingo) {
-            bgColor = 'bg-gray-300 text-gray-600';
-            texto = '';
-          } else if (trabajaSabado) {
-            bgColor = 'bg-orange-500 text-white font-bold';
-            texto = 'SÁB';
-          } else if (sabado) {
-            bgColor = 'bg-green-400 text-white';
-            texto = '';
-          } else {
-            texto = '✓';
-          }
-
-          html += `<td class="p-2 text-center ${bgColor}">
-            <div class="relative group">
-              <button class="w-full px-1 py-1 rounded text-xs">${texto}</button>
-              ${!domingo ? `<div class="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded p-2 mt-1 z-10 whitespace-nowrap left-0">
-                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'vacaciones')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏖️ Vacaciones</button>
-                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'enfermedad')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏥 Enfermedad</button>
-                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'examen')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">📚 Examen</button>
-                ${licencia ? '<button onclick="toggleLicencia(\'' + persona.id + '\', ' + dia + ', null)" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded text-red-400">❌ Quitar</button>' : ''}
-              </div>` : ''}
-            </div>
-          </td>`;
-        });
-
-        html += '</tr>';
-      }
-
-      html += `</tbody></table></div>
-          <div class="bg-white rounded-lg shadow-md p-4">
-            <h3 class="font-semibold mb-3">Leyenda:</h3>
-            <div class="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-orange-500 rounded"></div><span>Sábado (trabaja)</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-green-400 rounded"></div><span>Sábado franco</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-purple-500 rounded"></div><span>Vacaciones</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-red-400 rounded"></div><span>Enfermedad</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-blue-400 rounded"></div><span>Examen</span></div>
-              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-gray-300 rounded"></div><span>Domingo</span></div>
-            </div>
-            <p class="text-xs text-gray-500 mt-3">Rotación Córdoba: Ciclo de 4 semanas con diferentes combinaciones</p>
-          </div>
-        </div>
-      `;
-
-      return html;
     }
 
     function renderApp() {
       const app = document.getElementById('app');
       
-      if (cargando) {
-        app.innerHTML = '<div class="flex items-center justify-center min-h-screen"><div class="text-center"><div class="text-4xl mb-4">🔄</div><p class="text-xl font-semibold">Conectando...</p></div></div>';
-        return;
-      }
-
       const header = `
-        <div class="bg-white shadow-md no-print">
-          <div class="max-w-7xl mx-auto px-4">
-            <div class="flex items-center justify-between py-4">
-              <h1 class="text-2xl font-bold text-gray-800">Sistema de Gestión de Turnos</h1>
-              <div class="flex items-center gap-2 bg-green-100 px-3 py-1 rounded-full">
-                <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                <span class="text-sm font-semibold text-green-700">En vivo</span>
-              </div>
+        <div class="bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-lg">
+          <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex items-center justify-between mb-3">
+              <h1 class="text-2xl font-bold">Sistema de Gestión de Turnos</h1>
+              ${mensaje ? `<div class="bg-white text-blue-800 px-4 py-2 rounded-full font-semibold">${mensaje}</div>` : ''}
             </div>
             <nav class="flex gap-2 pb-2 overflow-x-auto">
-              <button onclick="cambiarVista('dashboard')" class="px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap ${vistaActual === 'dashboard' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">🏠 Dashboard</button>
-              <button onclick="cambiarVista('caba6x3')" class="px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap ${vistaActual === 'caba6x3' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">CABA 6x3</button>
-              <button onclick="cambiarVista('caba5x1')" class="px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap ${vistaActual === 'caba5x1' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">CABA Sábados</button>
-              <button onclick="cambiarVista('cordoba')" class="px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap ${vistaActual === 'cordoba' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">Córdoba</button>
+              <button onclick="cambiarVista('dashboard')" class="px-4 py-2 rounded-t-lg font-semibold ${vistaActual === 'dashboard' ? 'bg-white text-blue-600' : 'bg-blue-700 hover:bg-blue-600'}">
+                🏠 Dashboard
+              </button>
+              <button onclick="cambiarVista('caba6x3')" class="px-4 py-2 rounded-t-lg font-semibold ${vistaActual === 'caba6x3' ? 'bg-white text-blue-600' : 'bg-blue-700 hover:bg-blue-600'}">
+                CABA 6x3
+              </button>
+              <button onclick="cambiarVista('caba5x1')" class="px-4 py-2 rounded-t-lg font-semibold ${vistaActual === 'caba5x1' ? 'bg-white text-blue-600' : 'bg-blue-700 hover:bg-blue-600'}">
+                CABA Sábados
+              </button>
+              <button onclick="cambiarVista('cordoba')" class="px-4 py-2 rounded-t-lg font-semibold ${vistaActual === 'cordoba' ? 'bg-white text-blue-600' : 'bg-blue-700 hover:bg-blue-600'}">
+                Córdoba
+              </button>
             </nav>
           </div>
         </div>
       `;
 
       let contenido = '';
-      
-      if (vistaActual === 'caba6x3') {
-        contenido = renderCaba6x3();
-      } else if (vistaActual === 'caba5x1') {
-        contenido = renderCaba5x1();
-      } else if (vistaActual === 'cordoba') {
-        contenido = renderCordoba();
-      } else {
-        contenido = '<div class="max-w-7xl mx-auto p-6"><h2 class="text-3xl font-bold mb-6">Dashboard</h2><p class="text-gray-600">Selecciona una pestaña arriba para ver las rotaciones</p></div>';
-      }
+      if (vistaActual === 'dashboard') contenido = renderDashboard();
+      else if (vistaActual === 'caba6x3') contenido = renderGrilla('CABA - Rotación 6x3', EQUIPOS.caba_6x3, '6x3');
+      else if (vistaActual === 'caba5x1') contenido = renderGrilla('CABA - Sábados (5+1)', EQUIPOS.caba_5x1, '5x1');
+      else if (vistaActual === 'cordoba') contenido = renderGrilla('Córdoba - Sábados', EQUIPOS.cordoba, 'cordoba');
 
-      const footer = '<footer class="mt-8 text-center text-xs text-gray-400 pb-4">Creado por Gabriel Palazzini</footer>';
-
-      app.innerHTML = header + contenido + footer;
+      app.innerHTML = header + contenido + renderFormLicencia();
     }
 
     renderApp();
