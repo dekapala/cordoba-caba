@@ -680,6 +680,7 @@
       const trabaja = trabajaDia(personaId, dia);
       const esSab = esSabado(dia);
       const esDom = esDomingo(dia);
+      const tipo = getTipoTrabajo(personaId);
 
       let bgColor = 'bg-gray-200';
       let texto = '';
@@ -689,21 +690,39 @@
                   licencia === 'enfermedad' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white';
         texto = licencia === 'vacaciones' ? '🏖️' :
                 licencia === 'enfermedad' ? '🏥' : '📚';
-      } else if (esDom) {
-        bgColor = 'bg-gray-300';
-        texto = 'Dom';
-      } else if (!trabaja && !esSab) {
-        bgColor = 'bg-orange-400 text-white';
-        texto = 'F';
-      } else if (esSab && trabaja) {
-        bgColor = 'bg-yellow-400 text-white font-bold';
-        texto = 'Sáb';
-      } else if (esSab && !trabaja) {
-        bgColor = 'bg-green-200';
-        texto = '';
-      } else if (trabaja) {
-        bgColor = 'bg-green-100 border-2 border-green-400';
-        texto = '✓';
+      } else if (tipo === '6x3') {
+        // Para 6x3, sábados y domingos son días normales según su rotación
+        if (trabaja) {
+          if (esSab || esDom) {
+            bgColor = 'bg-yellow-400 text-white font-bold';
+            texto = esSab ? 'Sáb' : 'Dom';
+          } else {
+            bgColor = 'bg-green-100 border-2 border-green-400';
+            texto = '✓';
+          }
+        } else {
+          // Está de franco
+          bgColor = 'bg-orange-400 text-white';
+          texto = 'F';
+        }
+      } else {
+        // Para 5x1 y Córdoba
+        if (esDom) {
+          bgColor = 'bg-gray-300';
+          texto = 'Dom';
+        } else if (esSab && trabaja) {
+          bgColor = 'bg-yellow-400 text-white font-bold';
+          texto = 'Sáb';
+        } else if (esSab && !trabaja) {
+          bgColor = 'bg-green-200';
+          texto = '';
+        } else if (trabaja) {
+          bgColor = 'bg-green-100 border-2 border-green-400';
+          texto = '✓';
+        } else {
+          bgColor = 'bg-orange-400 text-white';
+          texto = 'F';
+        }
       }
 
       const deleteBtn = licencia ? `
