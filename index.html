@@ -1,619 +1,576 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Turnos CABA & Córdoba — Dashboard</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Gestión de Turnos</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-    .animate-pulse { animation: pulse 2s cubic-bezier(.4,0,.6,1) infinite; }
-    @media print { .no-print{display:none!important} body{background:#fff} }
-    .chip { @apply inline-block px-2 py-0.5 rounded text-xs font-semibold; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    @media print { .no-print { display: none !important; } body { background: white; } button { display: none !important; } }
   </style>
 </head>
 <body class="bg-gray-50">
   <div id="app"></div>
 
   <script type="module">
-    /* =====================  Firebase SDK (usar mismas versiones)  ===================== */
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
-    import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+    import { getFirestore, doc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-    /* =====================  Config del PROYECTO NUEVO  ===================== */
-    // Si cambiaste el proyecto, reemplaza estos valores por los de tu consola (Project settings → Web app).
     const firebaseConfig = {
-      apiKey: "AIzaSyBTM4YLyNUxNCg8SoTrTwqHd-_r386PSPE",
+      apiKey: "AIzaSyBfM4YLWkxNCg8SoTrTwqHd-_r386PSPF",
       authDomain: "turnos-caba-cordoba.firebaseapp.com",
       projectId: "turnos-caba-cordoba",
-      storageBucket: "turnos-caba-cordoba.appspot.com",
-      messagingSenderId: "80133083327",
-      appId: "1:80133083327:web:6690bc17e1385ab55de3ca"
+      storageBucket: "turnos-caba-cordoba.firebasestorage.app",
+      messagingSenderId: "80133008332",
+      appId: "1:80133008332:web:67ea89fee2ef6e875de3ca"
     };
 
-    const appFB = initializeApp(firebaseConfig);
-    const db = getFirestore(appFB);
-    const REF = doc(db, "turnos", "sistema");
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
 
-    /* =====================  Datos base  ===================== */
-    const EQUIPO_CABA_5x1 = [
-      { id:'lottero',   nombre:'Lottero, Lucas',   turno:'manana' },
-      { id:'lopez',     nombre:'López, Deborah',   turno:'manana', excluirCorreos:true },
-      { id:'capdet',    nombre:'Capdet, Gustavo',  turno:'manana' },
-      { id:'torales',   nombre:'Torales, Andrés',  turno:'manana' },
-      { id:'fernandez', nombre:'Fernández, Nicolás', turno:'tarde' },
-    ];
-    const EQUIPO_CABA_6x3 = [
-      { id:'gabriel', nombre:'Palazzini, Gabriel', turno:'manana' },
-      { id:'meoniz',  nombre:'Meoniz, Nicolás',   turno:'tarde' },
-      { id:'sergio',  nombre:'Palacios, Sergio',  turno:'manana' },
-    ];
-    const EQUIPO_CORDOBA = [
-      { id:'guzman',   nombre:'Guzmán, Luis' },
-      { id:'luna',     nombre:'Luna, Martín' },
-      { id:'diaz_s',   nombre:'Díaz, Sebastián' },
-      { id:'poles',    nombre:'Poles, Marina' },
-      { id:'diaz_j',   nombre:'Díaz, Jorge' },
-      { id:'allende',  nombre:'Allende, Alejandro' },
-      { id:'pereyra',  nombre:'Pereyra, José' },
-      { id:'spicogna', nombre:'Spicogna, Ariel' },
-      { id:'garrafa',  nombre:'Garrafa, Nico' },
-      { id:'baldamus', nombre:'Baldamus, Gabriela' },
-    ];
-
-    const ROTACION_SABADOS_CABA = ['lopez','capdet','torales','fernandez','lottero']; // 4/10/2025 → lopez
-    const MESES = [
-      { key:'2025-10', nombre:'Octubre 2025', dias:31, inicioSemana:3 },
-      { key:'2025-11', nombre:'Noviembre 2025', dias:30, inicioSemana:6 },
-      { key:'2025-12', nombre:'Diciembre 2025', dias:31, inicioSemana:1 },
-      { key:'2026-01', nombre:'Enero 2026', dias:31, inicioSemana:4 },
-      { key:'2026-02', nombre:'Febrero 2026', dias:28, inicioSemana:0 },
-      { key:'2026-03', nombre:'Marzo 2026', dias:31, inicioSemana:0 },
-      { key:'2026-04', nombre:'Abril 2026', dias:30, inicioSemana:3 },
-      { key:'2026-05', nombre:'Mayo 2026', dias:31, inicioSemana:5 },
-      { key:'2026-06', nombre:'Junio 2026', dias:30, inicioSemana:1 },
-    ];
-    const FERIADOS = {
-      '2025-10':[12], '2025-11':[20], '2025-12':[8,25],
-      '2026-01':[1],  '2026-02':[16,17], '2026-03':[24],
-      '2026-04':[2,3], '2026-05':[1,25], '2026-06':[15]
+    let datos = {
+      caba6x3: {},
+      caba5x1: {},
+      cordobaSabados: {},
+      licencias: {}
     };
-    const NOMBRES_FERIADOS = {
-      '2025-10':{12:'Día del Respeto a la Diversidad Cultural'},
-      '2025-11':{20:'Día de la Soberanía Nacional'},
-      '2025-12':{8:'Inmaculada Concepción', 25:'Navidad'},
-      '2026-01':{1:'Año Nuevo'},
-      '2026-02':{16:'Carnaval', 17:'Carnaval'},
-      '2026-03':{24:'Día de la Memoria'},
-      '2026-04':{2:'Día del Veterano', 3:'Viernes Santo'},
-      '2026-05':{1:'Día del Trabajador', 25:'Revolución de Mayo'},
-      '2026-06':{15:'Día de Güemes'}
-    };
+    
+    let vistaActual = 'dashboard';
+    let mesSeleccionado = '2025-10';
+    let cargando = true;
+    let mensaje = '';
 
-    /* =====================  Estado UI  ===================== */
-    let estado = {
-      vista:'dashboard',
-      mes:'2025-10',
-      filtro:'todos',
-      datos:null,            // lo vivo de Firestore
-      cargando:true,
-      mensaje:''
+    const equipoCaba6x3 = [
+      { id: 'gabriel', nombre: 'Palazzini, Gabriel' },
+      { id: 'meoniz', nombre: 'Meoniz, Nicolás' },
+      { id: 'sergio', nombre: 'Palacios, Sergio' }
+    ];
+
+    const equipoCaba5x1 = [
+      { id: 'lottero', nombre: 'Lottero, Lucas' },
+      { id: 'lopez', nombre: 'López, Deborah' },
+      { id: 'capdet', nombre: 'Capdet, Gustavo' },
+      { id: 'torales', nombre: 'Torales, Andrés' },
+      { id: 'fernandez', nombre: 'Fernández, Nicolás' }
+    ];
+
+    const equipoCordoba = [
+      { id: 'guzman', nombre: 'Guzmán, Luis' },
+      { id: 'luna', nombre: 'Luna, Martín' },
+      { id: 'diaz_s', nombre: 'Díaz, Sebastián' },
+      { id: 'poles', nombre: 'Poles, Marina' },
+      { id: 'diaz_j', nombre: 'Díaz, Jorge' },
+      { id: 'allende', nombre: 'Allende, Alejandro' },
+      { id: 'pereyra', nombre: 'Pereyra, José' },
+      { id: 'spicogna', nombre: 'Spicogna, Ariel' },
+      { id: 'garrafa', nombre: 'Garrafa, Nico' },
+      { id: 'baldamus', nombre: 'Baldamus, Gabriela' }
+    ];
+
+    const meses = [
+      { key: '2025-10', nombre: 'Octubre 2025', dias: 31, inicioSemana: 3 },
+      { key: '2025-11', nombre: 'Noviembre 2025', dias: 30, inicioSemana: 6 },
+      { key: '2025-12', nombre: 'Diciembre 2025', dias: 31, inicioSemana: 1 },
+      { key: '2026-01', nombre: 'Enero 2026', dias: 31, inicioSemana: 4 },
+      { key: '2026-02', nombre: 'Febrero 2026', dias: 28, inicioSemana: 0 },
+      { key: '2026-03', nombre: 'Marzo 2026', dias: 31, inicioSemana: 0 },
+      { key: '2026-04', nombre: 'Abril 2026', dias: 30, inicioSemana: 3 },
+      { key: '2026-05', nombre: 'Mayo 2026', dias: 31, inicioSemana: 5 },
+      { key: '2026-06', nombre: 'Junio 2026', dias: 30, inicioSemana: 1 }
+    ];
+
+    const feriados = {
+      '2025-10': [12], '2025-11': [20], '2025-12': [8, 25],
+      '2026-01': [1], '2026-02': [16, 17], '2026-03': [24],
+      '2026-04': [2, 3], '2026-05': [1, 25], '2026-06': [15]
     };
 
-    /* =====================  Utilidades de tiempo/rotación  ===================== */
-    function esSabado(mKey, dia){ const m=MESES.find(x=>x.key===mKey); return ((m.inicioSemana + dia - 1) % 7) === 6; }
-    function esDomingo(mKey, dia){ const m=MESES.find(x=>x.key===mKey); return ((m.inicioSemana + dia - 1) % 7) === 0; }
-    function nombreDia(mKey, dia){
-      const m=MESES.find(x=>x.key===mKey); const idx=(m.inicioSemana + dia - 1) % 7;
-      return ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][idx];
+    // Rotación CABA 5+1 (ciclo de 5 semanas)
+    const rotacionCaba5x1 = ['lopez', 'capdet', 'torales', 'fernandez', 'lottero'];
+    
+    // Rotación Córdoba (ciclo de 4 semanas)
+    const rotacionCordoba = [
+      ['luna', 'spicogna'],
+      ['diaz_s', 'diaz_j', 'baldamus', 'allende'],
+      ['guzman', 'pereyra'],
+      ['poles']
+    ];
+
+    onSnapshot(doc(db, 'sistema', 'datos'), (docSnap) => {
+      if (docSnap.exists()) {
+        datos = docSnap.data();
+      }
+      cargando = false;
+      renderApp();
+    }, (error) => {
+      console.error('Error Firebase:', error);
+      cargando = false;
+      renderApp();
+    });
+
+    async function guardarFirebase() {
+      try {
+        await setDoc(doc(db, 'sistema', 'datos'), datos);
+        mostrarMensaje('✅ Sincronizado');
+      } catch (error) {
+        console.error('Error:', error);
+        mostrarMensaje('❌ Error al guardar');
+      }
     }
-    function ciclo6x3(diasMes, offset){
-      const ciclo=[true,true,true,true,true,true,false,false,false]; // true=trabaja
-      const out={}; for(let d=1; d<=diasMes; d++){ out[d]=ciclo[(offset + d - 1) % 9]; } return out;
+
+    function mostrarMensaje(msg) {
+      mensaje = msg;
+      renderApp();
+      setTimeout(() => { mensaje = ''; renderApp(); }, 2000);
     }
-    // Offsets encadenados (igual que tu lógica previa)
-    function offsetsPorMes(){
-      return {
-        '2025-10':{ g_n:4, s:1 },
-        '2025-11':{ g_n:8, s:5 },
-        '2025-12':{ g_n:2, s:8 },
-        '2026-01':{ g_n:6, s:3 },
-        '2026-02':{ g_n:1, s:7 },
-        '2026-03':{ g_n:2, s:8 },
-        '2026-04':{ g_n:6, s:3 },
-        '2026-05':{ g_n:0, s:6 },
-        '2026-06':{ g_n:4, s:1 }
+
+    window.cambiarVista = function(vista) {
+      vistaActual = vista;
+      renderApp();
+    };
+
+    window.cambiarMes = function(mes) {
+      mesSeleccionado = mes;
+      renderApp();
+    };
+
+    // ALGORITMO 6X3
+    function calcularRotacion6x3(diasMes, offset) {
+      const rot = {};
+      const ciclo = [true, true, true, true, true, true, false, false, false];
+      for (let d = 1; d <= diasMes; d++) {
+        rot[d] = ciclo[(offset + d - 1) % 9];
+      }
+      return rot;
+    }
+
+    function getRotaciones6x3(mesKey) {
+      const mes = meses.find(m => m.key === mesKey);
+      const offsets = {
+        '2025-10': 4, '2025-11': 8, '2025-12': 2,
+        '2026-01': 6, '2026-02': 1, '2026-03': 2,
+        '2026-04': 6, '2026-05': 0, '2026-06': 4
       };
+      return calcularRotacion6x3(mes.dias, offsets[mesKey] || 4);
     }
 
-    function fechasEntre(inicioStr, finStr){
-      const res=[]; const start=new Date(inicioStr); const end=new Date(finStr);
-      for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){
-        res.push(new Date(d));
+    function getNombreDia(dia, mesKey) {
+      const mes = meses.find(m => m.key === mesKey);
+      const diaSemana = (mes.inicioSemana + dia - 1) % 7;
+      return ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][diaSemana];
+    }
+
+    function esSabado(dia, mesKey) {
+      return getNombreDia(dia, mesKey) === 'Sáb';
+    }
+
+    // ALGORITMO SÁBADOS CABA 5+1
+    function getSabadoCaba5x1(fecha) {
+      const referencia = new Date('2025-10-04'); // Deborah
+      const diff = Math.floor((fecha - referencia) / (7 * 24 * 60 * 60 * 1000));
+      return rotacionCaba5x1[diff % 5];
+    }
+
+    // ALGORITMO SÁBADOS CÓRDOBA
+    function getSabadosCordoba(fecha) {
+      const referencia = new Date('2025-10-04'); // Luna, Spicogna
+      const diff = Math.floor((fecha - referencia) / (7 * 24 * 60 * 60 * 1000));
+      return rotacionCordoba[diff % 4];
+    }
+
+    // GESTIÓN LICENCIAS
+    window.toggleLicencia = async function(persona, dia, tipo) {
+      const key = `${mesSeleccionado}-${dia}`;
+      if (!datos.licencias[persona]) datos.licencias[persona] = {};
+      
+      if (datos.licencias[persona][key] === tipo) {
+        delete datos.licencias[persona][key];
+      } else {
+        datos.licencias[persona][key] = tipo;
       }
-      return res;
+      
+      await guardarFirebase();
+      renderApp();
+    };
+
+    function getLicencia(persona, dia) {
+      const key = `${mesSeleccionado}-${dia}`;
+      return datos.licencias[persona]?.[key] || null;
     }
-    function listarSabados(inicioStr, finStr){
-      const res=[]; const days=fechasEntre(inicioStr, finStr);
-      for(const d of days){ if(d.getDay()===6) res.push(new Date(d)); }
-      return res;
+
+    // RENDER CABA 6X3
+    function renderCaba6x3() {
+      const mes = meses.find(m => m.key === mesSeleccionado);
+      const rotacion = getRotaciones6x3(mesSeleccionado);
+      const feriadosMes = feriados[mesSeleccionado] || [];
+      
+      let html = `
+        <div class="max-w-7xl mx-auto p-6">
+          <div class="flex items-center justify-between mb-6">
+            <h2 class="text-3xl font-bold text-gray-800">CABA - Rotación 6x3</h2>
+            <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg font-semibold">
+              ${meses.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
+            </select>
+          </div>
+
+          ${mensaje ? `<div class="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-semibold">${mensaje}</div>` : ''}
+
+          <div class="bg-white rounded-lg shadow-md overflow-x-auto mb-6">
+            <table class="w-full">
+              <thead>
+                <tr class="bg-gray-700 text-white">
+                  <th class="p-3 text-left">Día</th>
+                  ${equipoCaba6x3.map(p => `<th class="p-3 text-center">${p.nombre}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+      `;
+
+      for (let dia = 1; dia <= mes.dias; dia++) {
+        const esFeriado = feriadosMes.includes(dia);
+        const nombreDia = getNombreDia(dia, mesSeleccionado);
+        const esFinde = nombreDia === 'Sáb' || nombreDia === 'Dom';
+        
+        html += `<tr class="border-b ${esFinde ? 'bg-blue-50' : ''} ${esFeriado ? 'bg-yellow-50' : ''}">`;
+        html += `<td class="p-3 font-medium">
+          <div class="flex items-center gap-2">
+            <span class="font-bold">${dia}</span>
+            <span class="text-gray-600 text-sm">${nombreDia}</span>
+            ${esFeriado ? '<span class="text-xs text-yellow-700 font-semibold">(Feriado)</span>' : ''}
+          </div>
+        </td>`;
+
+        equipoCaba6x3.forEach(persona => {
+          const licencia = getLicencia(persona.id, dia);
+          const esFranco = !rotacion[dia];
+          
+          let bgColor = '';
+          let texto = '';
+          
+          if (licencia === 'vacaciones') {
+            bgColor = 'bg-purple-500 text-white font-bold';
+            texto = '🏖️ VACACIONES';
+          } else if (licencia === 'enfermedad') {
+            bgColor = 'bg-red-400 text-white font-bold';
+            texto = '🏥 ENFERMEDAD';
+          } else if (licencia === 'examen') {
+            bgColor = 'bg-blue-400 text-white font-bold';
+            texto = '📚 EXAMEN';
+          } else if (esFranco) {
+            bgColor = 'bg-pink-400 text-white font-semibold';
+            texto = 'FRANCO';
+          } else {
+            texto = 'Trabaja';
+          }
+
+          html += `<td class="p-2 text-center ${bgColor}">
+            <div class="relative group">
+              <button class="w-full px-2 py-1 rounded">${texto}</button>
+              <div class="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded p-2 mt-1 z-10 whitespace-nowrap left-0">
+                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'vacaciones')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏖️ Vacaciones</button>
+                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'enfermedad')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏥 Enfermedad</button>
+                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'examen')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">📚 Examen</button>
+                ${licencia ? '<button onclick="toggleLicencia(\'' + persona.id + '\', ' + dia + ', null)" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded text-red-400">❌ Quitar</button>' : ''}
+              </div>
+            </div>
+          </td>`;
+        });
+
+        html += '</tr>';
+      }
+
+      html += `</tbody></table></div>
+          <div class="bg-white rounded-lg shadow-md p-4">
+            <h3 class="font-semibold mb-3">Leyenda:</h3>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-pink-400 rounded"></div><span>Franco</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-purple-500 rounded"></div><span>Vacaciones</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-red-400 rounded"></div><span>Enfermedad</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-blue-400 rounded"></div><span>Examen</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-yellow-50 border rounded"></div><span>Feriado</span></div>
+            </div>
+            <p class="text-xs text-gray-500 mt-3">💡 Hover sobre cualquier día para asignar licencias</p>
+          </div>
+        </div>
+      `;
+
+      return html;
     }
-    function lunesDeCadaSemana(inicioStr, finStr){
-      const res=[]; const days=fechasEntre(inicioStr, finStr);
-      for(const d of days){
-        if(d.getDay()===1){ // lunes
-          res.push(new Date(d));
+
+    // RENDER CABA 5+1
+    function renderCaba5x1() {
+      const mes = meses.find(m => m.key === mesSeleccionado);
+      const feriadosMes = feriados[mesSeleccionado] || [];
+      
+      let html = `
+        <div class="max-w-7xl mx-auto p-6">
+          <div class="flex items-center justify-between mb-6">
+            <h2 class="text-3xl font-bold text-gray-800">CABA - Sábados 5+1</h2>
+            <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg font-semibold">
+              ${meses.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
+            </select>
+          </div>
+
+          ${mensaje ? `<div class="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-semibold">${mensaje}</div>` : ''}
+
+          <div class="bg-white rounded-lg shadow-md overflow-x-auto mb-6">
+            <table class="w-full">
+              <thead>
+                <tr class="bg-gray-700 text-white">
+                  <th class="p-3 text-left">Día</th>
+                  ${equipoCaba5x1.map(p => `<th class="p-3 text-center">${p.nombre}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+      `;
+
+      for (let dia = 1; dia <= mes.dias; dia++) {
+        const nombreDia = getNombreDia(dia, mesSeleccionado);
+        const esFeriado = feriadosMes.includes(dia);
+        const sabado = esSabado(dia, mesSeleccionado);
+        const esFinde = nombreDia === 'Sáb' || nombreDia === 'Dom';
+        
+        html += `<tr class="border-b ${esFinde ? 'bg-blue-50' : ''} ${esFeriado ? 'bg-yellow-50' : ''}">`;
+        html += `<td class="p-3 font-medium">
+          <div class="flex items-center gap-2">
+            <span class="font-bold">${dia}</span>
+            <span class="text-gray-600 text-sm">${nombreDia}</span>
+            ${esFeriado ? '<span class="text-xs text-yellow-700 font-semibold">(Feriado)</span>' : ''}
+          </div>
+        </td>`;
+
+        let personaEnSabado = null;
+        if (sabado) {
+          const fecha = new Date(mesSeleccionado + '-' + String(dia).padStart(2, '0'));
+          personaEnSabado = getSabadoCaba5x1(fecha);
         }
-      }
-      return res;
-    }
-    function fmtYMD(d){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const dd=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${dd}`; }
 
-    /* =====================  SEED por código  ===================== */
-    function construirSeed(){
-      // 6x3 precomputado por mes
-      const off=offsetsPorMes();
-      const caba6x3={ gabriel:{}, nicolas:{}, sergio:{} };
-      for(const m of MESES){
-        const o=off[m.key];
-        const base=ciclo6x3(m.dias, o.g_n);
-        const ser=ciclo6x3(m.dias, o.s);
-        caba6x3.gabriel[m.key]=structuredClone(base);
-        caba6x3.nicolas[m.key]=structuredClone(base);
-        caba6x3.sergio[m.key]=structuredClone(ser);
-      }
+        equipoCaba5x1.forEach(persona => {
+          const licencia = getLicencia(persona.id, dia);
+          const trabajaSabado = sabado && personaEnSabado === persona.id;
+          const domingo = nombreDia === 'Dom';
+          
+          let bgColor = '';
+          let texto = '';
+          
+          if (licencia === 'vacaciones') {
+            bgColor = 'bg-purple-500 text-white font-bold';
+            texto = '🏖️ VACACIONES';
+          } else if (licencia === 'enfermedad') {
+            bgColor = 'bg-red-400 text-white font-bold';
+            texto = '🏥 ENFERMEDAD';
+          } else if (licencia === 'examen') {
+            bgColor = 'bg-blue-400 text-white font-bold';
+            texto = '📚 EXAMEN';
+          } else if (domingo) {
+            bgColor = 'bg-gray-300 text-gray-600';
+            texto = 'Franco';
+          } else if (trabajaSabado) {
+            bgColor = 'bg-orange-500 text-white font-bold';
+            texto = 'SÁBADO';
+          } else if (sabado) {
+            bgColor = 'bg-green-400 text-white';
+            texto = 'Franco';
+          } else {
+            texto = 'Trabaja';
+          }
 
-      // Sábados CABA 5+1 (desde 2025-10-04 a 2026-06-30)
-      const sabados=listarSabados("2025-10-01","2026-06-30");
-      const caba5x1={ sabados:{} };
-      const refInicio=new Date("2025-10-04");
-      for(const s of sabados){
-        const diffSemanas=Math.floor((s - refInicio) / (7*24*60*60*1000));
-        const idx=((diffSemanas % 5) + 5) % 5;
-        caba5x1.sabados[fmtYMD(s)]=ROTACION_SABADOS_CABA[idx];
-      }
+          html += `<td class="p-2 text-center ${bgColor}">
+            <div class="relative group">
+              <button class="w-full px-2 py-1 rounded text-sm">${texto}</button>
+              ${!domingo ? `<div class="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded p-2 mt-1 z-10 whitespace-nowrap left-0">
+                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'vacaciones')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏖️ Vacaciones</button>
+                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'enfermedad')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏥 Enfermedad</button>
+                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'examen')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">📚 Examen</button>
+                ${licencia ? '<button onclick="toggleLicencia(\'' + persona.id + '\', ' + dia + ', null)" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded text-red-400">❌ Quitar</button>' : ''}
+              </div>` : ''}
+            </div>
+          </td>`;
+        });
 
-      // Correos CABA por semanas (lunes → domingo). Mañana: cualquiera 5x1 salvo Deborah; Tarde: solo fernandez/meoniz.
-      const correos={ semanas:{} };
-      const lunes=lunesDeCadaSemana("2025-10-01","2026-06-30");
-      let iMan=0; // índice para mañana (salteando Deborah)
-      let iTar=0; // alterna fernandez/meoniz
-      const manPool=EQUIPO_CABA_5x1.filter(p=>!p.excluirCorreos).map(p=>p.id).concat(EQUIPO_CABA_6x3.filter(p=>p.turno==='manana').map(p=>p.id)); // incluye gabriel/sergio
-      const tarPool=['fernandez','meoniz'];
-      for(const l of lunes){
-        const key=fmtYMD(l);
-        correos.semanas[key]={
-          manana: manPool[iMan % manPool.length],
-          tarde:  tarPool[iTar % tarPool.length]
-        };
-        iMan++; iTar++;
-      }
-
-      // Córdoba — Holdeo semanal round-robin
-      const cordoba={ semanas:{} };
-      let iC=0;
-      for(const l of lunes){
-        const key=fmtYMD(l);
-        cordoba.semanas[key]=EQUIPO_CORDOBA[iC % EQUIPO_CORDOBA.length].id;
-        iC++;
+        html += '</tr>';
       }
 
-      const licencias={}; // vacío, editable a futuro
+      html += `</tbody></table></div>
+          <div class="bg-white rounded-lg shadow-md p-4">
+            <h3 class="font-semibold mb-3">Leyenda:</h3>
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-orange-500 rounded"></div><span>Sábado (trabaja)</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-green-400 rounded"></div><span>Sábado franco</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-purple-500 rounded"></div><span>Vacaciones</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-red-400 rounded"></div><span>Enfermedad</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-blue-400 rounded"></div><span>Examen</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-gray-300 rounded"></div><span>Domingo</span></div>
+            </div>
+            <p class="text-xs text-gray-500 mt-3">Rotación 5+1: Cada persona trabaja 1 sábado cada 5 semanas</p>
+          </div>
+        </div>
+      `;
 
-      return { caba6x3, caba5x1, cabaCorreos:correos, cordobaHoldeos:cordoba, licencias };
-    }
-
-    async function ensureSeed(){
-      const snap=await getDoc(REF);
-      if(!snap.exists()){
-        const seed=construirSeed();
-        await setDoc(REF, seed, { merge:true });
-        console.log("Seed creado en turnos/sistema");
-      }
+      return html;
     }
 
-    /* =====================  Persistencia helpers  ===================== */
-    async function guardarPatch(patch){
-      await setDoc(REF, patch, { merge:true });
-      toast("✅ Guardado");
-    }
-    function toast(msg){
-      estado.mensaje=msg; render();
-      setTimeout(()=>{ estado.mensaje=''; render(); }, 1800);
+    // RENDER CÓRDOBA
+    function renderCordoba() {
+      const mes = meses.find(m => m.key === mesSeleccionado);
+      const feriadosMes = feriados[mesSeleccionado] || [];
+      
+      let html = `
+        <div class="max-w-7xl mx-auto p-6">
+          <div class="flex items-center justify-between mb-6">
+            <h2 class="text-3xl font-bold text-gray-800">Córdoba - Sábados</h2>
+            <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg font-semibold">
+              ${meses.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
+            </select>
+          </div>
+
+          ${mensaje ? `<div class="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-semibold">${mensaje}</div>` : ''}
+
+          <div class="bg-white rounded-lg shadow-md overflow-x-auto mb-6">
+            <table class="w-full">
+              <thead>
+                <tr class="bg-gray-700 text-white">
+                  <th class="p-3 text-left">Día</th>
+                  ${equipoCordoba.map(p => `<th class="p-3 text-center text-xs">${p.nombre.split(',')[0]}</th>`).join('')}
+                </tr>
+              </thead>
+              <tbody>
+      `;
+
+      for (let dia = 1; dia <= mes.dias; dia++) {
+        const nombreDia = getNombreDia(dia, mesSeleccionado);
+        const esFeriado = feriadosMes.includes(dia);
+        const sabado = esSabado(dia, mesSeleccionado);
+        const esFinde = nombreDia === 'Sáb' || nombreDia === 'Dom';
+        
+        html += `<tr class="border-b ${esFinde ? 'bg-blue-50' : ''} ${esFeriado ? 'bg-yellow-50' : ''}">`;
+        html += `<td class="p-3 font-medium">
+          <div class="flex items-center gap-2">
+            <span class="font-bold">${dia}</span>
+            <span class="text-gray-600 text-sm">${nombreDia}</span>
+            ${esFeriado ? '<span class="text-xs text-yellow-700 font-semibold">(Feriado)</span>' : ''}
+          </div>
+        </td>`;
+
+        let personasEnSabado = [];
+        if (sabado) {
+          const fecha = new Date(mesSeleccionado + '-' + String(dia).padStart(2, '0'));
+          personasEnSabado = getSabadosCordoba(fecha);
+        }
+
+        equipoCordoba.forEach(persona => {
+          const licencia = getLicencia(persona.id, dia);
+          const trabajaSabado = sabado && personasEnSabado.includes(persona.id);
+          const domingo = nombreDia === 'Dom';
+          
+          let bgColor = '';
+          let texto = '';
+          
+          if (licencia === 'vacaciones') {
+            bgColor = 'bg-purple-500 text-white font-bold';
+            texto = '🏖️';
+          } else if (licencia === 'enfermedad') {
+            bgColor = 'bg-red-400 text-white font-bold';
+            texto = '🏥';
+          } else if (licencia === 'examen') {
+            bgColor = 'bg-blue-400 text-white font-bold';
+            texto = '📚';
+          } else if (domingo) {
+            bgColor = 'bg-gray-300 text-gray-600';
+            texto = '';
+          } else if (trabajaSabado) {
+            bgColor = 'bg-orange-500 text-white font-bold';
+            texto = 'SÁB';
+          } else if (sabado) {
+            bgColor = 'bg-green-400 text-white';
+            texto = '';
+          } else {
+            texto = '✓';
+          }
+
+          html += `<td class="p-2 text-center ${bgColor}">
+            <div class="relative group">
+              <button class="w-full px-1 py-1 rounded text-xs">${texto}</button>
+              ${!domingo ? `<div class="absolute hidden group-hover:block bg-gray-800 text-white text-xs rounded p-2 mt-1 z-10 whitespace-nowrap left-0">
+                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'vacaciones')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏖️ Vacaciones</button>
+                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'enfermedad')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">🏥 Enfermedad</button>
+                <button onclick="toggleLicencia('${persona.id}', ${dia}, 'examen')" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded">📚 Examen</button>
+                ${licencia ? '<button onclick="toggleLicencia(\'' + persona.id + '\', ' + dia + ', null)" class="block w-full text-left px-2 py-1 hover:bg-gray-700 rounded text-red-400">❌ Quitar</button>' : ''}
+              </div>` : ''}
+            </div>
+          </td>`;
+        });
+
+        html += '</tr>';
+      }
+
+      html += `</tbody></table></div>
+          <div class="bg-white rounded-lg shadow-md p-4">
+            <h3 class="font-semibold mb-3">Leyenda:</h3>
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm">
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-orange-500 rounded"></div><span>Sábado (trabaja)</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-green-400 rounded"></div><span>Sábado franco</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-purple-500 rounded"></div><span>Vacaciones</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-red-400 rounded"></div><span>Enfermedad</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-blue-400 rounded"></div><span>Examen</span></div>
+              <div class="flex items-center gap-2"><div class="w-4 h-4 bg-gray-300 rounded"></div><span>Domingo</span></div>
+            </div>
+            <p class="text-xs text-gray-500 mt-3">Rotación Córdoba: Ciclo de 4 semanas con diferentes combinaciones</p>
+          </div>
+        </div>
+      `;
+
+      return html;
     }
 
-    /* =====================  Vistas / Render  ===================== */
-    function header(){
-      return `
+    function renderApp() {
+      const app = document.getElementById('app');
+      
+      if (cargando) {
+        app.innerHTML = '<div class="flex items-center justify-center min-h-screen"><div class="text-center"><div class="text-4xl mb-4">🔄</div><p class="text-xl font-semibold">Conectando...</p></div></div>';
+        return;
+      }
+
+      const header = `
         <div class="bg-white shadow-md no-print">
           <div class="max-w-7xl mx-auto px-4">
             <div class="flex items-center justify-between py-4">
-              <h1 class="text-2xl font-bold text-gray-800">Turnos — CABA & Córdoba</h1>
+              <h1 class="text-2xl font-bold text-gray-800">Sistema de Gestión de Turnos</h1>
               <div class="flex items-center gap-2 bg-green-100 px-3 py-1 rounded-full">
-                <span class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+                <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
                 <span class="text-sm font-semibold text-green-700">En vivo</span>
               </div>
             </div>
             <nav class="flex gap-2 pb-2 overflow-x-auto">
-              ${tab('dashboard','🏠 Dashboard')}
-              ${tab('caba6x3','CABA 6x3')}
-              ${tab('caba5x1','CABA 5+1 (Sábados)')}
-              ${tab('correos','📧 Correos CABA')}
-              ${tab('cordoba','Córdoba Holdeos')}
+              <button onclick="cambiarVista('dashboard')" class="px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap ${vistaActual === 'dashboard' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">🏠 Dashboard</button>
+              <button onclick="cambiarVista('caba6x3')" class="px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap ${vistaActual === 'caba6x3' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">CABA 6x3</button>
+              <button onclick="cambiarVista('caba5x1')" class="px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap ${vistaActual === 'caba5x1' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">CABA Sábados</button>
+              <button onclick="cambiarVista('cordoba')" class="px-4 py-2 rounded-t-lg font-semibold whitespace-nowrap ${vistaActual === 'cordoba' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">Córdoba</button>
             </nav>
           </div>
-        </div>`;
-    }
-    function tab(id,label){
-      const active = estado.vista===id ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300';
-      return `<button data-vista="${id}" class="px-4 py-2 rounded-t-lg font-semibold ${active}">${label}</button>`;
-    }
+        </div>
+      `;
 
-    function selectMes(){
-      return `<select id="mesSel" class="px-3 py-2 border rounded-lg">
-        ${MESES.map(m=>`<option value="${m.key}" ${m.key===estado.mes?'selected':''}>${m.nombre}</option>`).join('')}
-      </select>`;
-    }
-    function selectFiltro(){
-      return `<select id="filtroSel" class="px-3 py-2 border rounded-lg">
-        <option value="todos" ${estado.filtro==='todos'?'selected':''}>👥 Todos</option>
-        <option value="gabriel" ${estado.filtro==='gabriel'?'selected':''}>Gabriel</option>
-        <option value="nicolas" ${estado.filtro==='nicolas'?'selected':''}>Nicolás</option>
-        <option value="sergio" ${estado.filtro==='sergio'?'selected':''}>Sergio</option>
-      </select>`;
-    }
-
-    function vistaDashboard(){
-      const d = estado.datos;
-      // Próximo sábado
-      const hoy=new Date(); const day=hoy.getDay(); const add = (6 - day + 7) % 7 || 7; const prox=new Date(hoy); prox.setDate(hoy.getDate()+add);
-      const sabKey=fmtYMD(prox);
-      const sabAsignado= d?.caba5x1?.sabados?.[sabKey] || '—';
-      const sabNombre = (EQUIPO_CABA_5x1.find(p=>p.id===sabAsignado)||{}).nombre || '—';
-
-      // Correos esta semana (lunes más cercano hacia atrás)
-      const lunesHoy=new Date(hoy); const offset = (lunesHoy.getDay()+6)%7; lunesHoy.setDate(lunesHoy.getDate()-offset);
-      const semKey=fmtYMD(lunesHoy);
-      const cor=d?.cabaCorreos?.semanas?.[semKey] || {};
-      const manNombre = nombrePorId(cor.manana) || '—';
-      const tarNombre = nombrePorId(cor.tarde) || '—';
-
-      return `
-        <div class="max-w-7xl mx-auto p-6">
-          ${estado.mensaje?`<div class="mb-4 p-2 bg-green-100 text-green-800 rounded">${estado.mensaje}</div>`:''}
-          <h2 class="text-3xl font-bold mb-6 text-gray-800">Dashboard</h2>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-lg p-6 text-white">
-              <h3 class="text-xl font-bold mb-4">📧 Correos CABA — Semana ${semKey}</h3>
-              <div class="space-y-3">
-                <div class="bg-white/20 rounded p-3">
-                  <div class="text-sm opacity-90">🌅 Mañana</div>
-                  <div class="text-lg font-bold">${manNombre}</div>
-                </div>
-                <div class="bg-white/20 rounded p-3">
-                  <div class="text-sm opacity-90">🌆 Tarde</div>
-                  <div class="text-lg font-bold">${tarNombre}</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg shadow-lg p-6 text-white">
-              <h3 class="text-xl font-bold mb-4">🗓️ Próximo sábado</h3>
-              <div class="bg-white/20 rounded p-3">
-                <div class="text-sm opacity-90">${sabKey}</div>
-                <div class="text-lg font-bold">${sabNombre}</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-white rounded-lg shadow-md p-6">
-            <h3 class="text-xl font-bold mb-4">📊 Resumen</h3>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div class="border-l-4 border-blue-500 pl-4">
-                <div class="text-sm text-gray-600">Equipo CABA</div>
-                <div class="text-2xl font-bold">8 personas</div>
-                <div class="text-xs text-gray-500">5 en 5+1, 3 en 6x3</div>
-              </div>
-              <div class="border-l-4 border-purple-500 pl-4">
-                <div class="text-sm text-gray-600">Equipo Córdoba</div>
-                <div class="text-2xl font-bold">10 personas</div>
-                <div class="text-xs text-gray-500">Holdeo semanal</div>
-              </div>
-              <div class="border-l-4 border-green-500 pl-4">
-                <div class="text-sm text-gray-600">Rango</div>
-                <div class="text-md font-semibold">Oct 2025 — Jun 2026</div>
-              </div>
-            </div>
-          </div>
-        </div>`;
-    }
-
-    function nombrePorId(id){
-      const pools=[...EQUIPO_CABA_5x1, ...EQUIPO_CABA_6x3, ...EQUIPO_CORDOBA];
-      return (pools.find(p=>p.id===id)||{}).nombre || id || '—';
-    }
-
-    /* ======== CABA 6x3 — grilla mensual con filtro y métricas ======== */
-    function vistaCABA6x3(){
-      const mKey=estado.mes; const d=estado.datos;
-      const rotG= d?.caba6x3?.gabriel?.[mKey] || {};
-      const rotN= d?.caba6x3?.nicolas?.[mKey] || {};
-      const rotS= d?.caba6x3?.sergio ?. [mKey] || {};
-      const fer= FERIADOS[mKey] || [];
-      const mes= MESES.find(x=>x.key===mKey);
-
-      function totales(rot){
-        let trabajadosF=0, libresF=0;
-        for(const dia of (FERIADOS[mKey]||[])){
-          if(rot[dia]) trabajadosF++; else libresF++;
-        }
-        return {trabajadosF, libresF};
+      let contenido = '';
+      
+      if (vistaActual === 'caba6x3') {
+        contenido = renderCaba6x3();
+      } else if (vistaActual === 'caba5x1') {
+        contenido = renderCaba5x1();
+      } else if (vistaActual === 'cordoba') {
+        contenido = renderCordoba();
+      } else {
+        contenido = '<div class="max-w-7xl mx-auto p-6"><h2 class="text-3xl font-bold mb-6">Dashboard</h2><p class="text-gray-600">Selecciona una pestaña arriba para ver las rotaciones</p></div>';
       }
-      const tG=totales(rotG), tN=totales(rotN), tS=totales(rotS);
 
-      const col = (label, id, rot) => `
-        <th class="p-2 text-center bg-gray-100">${label}</th>
-        ${Array.from({length:mes.dias}, (_,i)=>{
-          const dia=i+1;
-          const clase = fer.includes(dia) ? 'bg-yellow-50' : (esSabado(mKey,dia)||esDomingo(mKey,dia) ? 'bg-blue-50' : '');
-          return \`<td class="p-1 text-center \${clase}">\${rot[dia] ? 'Trabaja' : '<span class="chip bg-pink-200 text-pink-800">FRANCO</span>'}</td>\`;
-        }).join('')}`;
+      const footer = '<footer class="mt-8 text-center text-xs text-gray-400 pb-4">Creado por Gabriel Palazzini</footer>';
 
-      // Filtro
-      const columnas = [];
-      if(estado.filtro==='todos' || estado.filtro==='gabriel') columnas.push(col('Gabriel Palazzini','gabriel',rotG));
-      if(estado.filtro==='todos' || estado.filtro==='nicolas') columnas.push(col('Nicolás Meoniz','nicolas',rotN));
-      if(estado.filtro==='todos' || estado.filtro==='sergio')  columnas.push(col('Sergio Palacios','sergio',rotS));
-
-      return `
-        <div class="max-w-7xl mx-auto p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-2xl font-bold">CABA 6x3</h2>
-            <div class="flex gap-2 items-center">
-              ${selectMes()}
-              ${selectFiltro()}
-              <button class="px-3 py-2 bg-gray-200 rounded no-print" onclick="window.print()">🖨️ Imprimir</button>
-            </div>
-          </div>
-
-          <div class="overflow-x-auto bg-white rounded shadow">
-            <table class="min-w-full text-sm">
-              <thead>
-                <tr class="bg-gray-700 text-white">
-                  <th class="p-2 text-left">Día</th>
-                  ${columnas.map(c=>'<th class="p-2 text-center">'+c.split('</th>')[0].replace(/.*>/,'')+'</th>').join('')}
-                </tr>
-              </thead>
-              <tbody>
-                ${Array.from({length:mes.dias}, (_,i)=>{
-                  const dia=i+1;
-                  const clase = (FERIADOS[mKey]||[]).includes(dia) ? 'bg-yellow-50' : (esSabado(mKey,dia)||esDomingo(mKey,dia) ? 'bg-blue-50' : '');
-                  const celdas=[];
-                  if(estado.filtro==='todos' || estado.filtro==='gabriel') celdas.push(\`<td class="p-1 text-center \${clase}">\${rotG[dia] ? 'Trabaja' : '<span class="chip bg-pink-200 text-pink-800">FRANCO</span>'}</td>\`);
-                  if(estado.filtro==='todos' || estado.filtro==='nicolas') celdas.push(\`<td class="p-1 text-center \${clase}">\${rotN[dia] ? 'Trabaja' : '<span class="chip bg-pink-200 text-pink-800">FRANCO</span>'}</td>\`);
-                  if(estado.filtro==='todos' || estado.filtro==='sergio')  celdas.push(\`<td class="p-1 text-center \${clase}">\${rotS[dia] ? 'Trabaja' : '<span class="chip bg-pink-200 text-pink-800">FRANCO</span>'}</td>\`);
-                  return \`
-                    <tr class="border-b">
-                      <td class="p-2 font-medium">${dia} <span class="text-gray-500 text-xs">(${nombreDia(mKey,dia)})</span>
-                        ${(FERIADOS[mKey]||[]).includes(dia) ? \`<div class="text-[10px] text-yellow-700">\${NOMBRES_FERIADOS[mKey]?.[dia]||'Feriado'}</div>\` : ''}
-                      </td>
-                      \${celdas.join('')}
-                    </tr>\`;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-            <div class="bg-white rounded shadow p-4">
-              <h4 class="font-semibold mb-1">Gabriel</h4>
-              <div class="text-sm">Feriados trabajados: <b class="text-red-600">${tG.trabajadosF}</b></div>
-              <div class="text-sm">Feriados libres: <b class="text-green-600">${tG.libresF}</b></div>
-            </div>
-            <div class="bg-white rounded shadow p-4">
-              <h4 class="font-semibold mb-1">Nicolás</h4>
-              <div class="text-sm">Feriados trabajados: <b class="text-red-600">${tN.trabajadosF}</b></div>
-              <div class="text-sm">Feriados libres: <b class="text-green-600">${tN.libresF}</b></div>
-            </div>
-            <div class="bg-white rounded shadow p-4">
-              <h4 class="font-semibold mb-1">Sergio</h4>
-              <div class="text-sm">Feriados trabajados: <b class="text-red-600">${tS.trabajadosF}</b></div>
-              <div class="text-sm">Feriados libres: <b class="text-green-600">${tS.libresF}</b></div>
-            </div>
-          </div>
-        </div>`;
+      app.innerHTML = header + contenido + footer;
     }
 
-    /* ======== CABA 5+1 — sábados con edición ======== */
-    function vistaCABA5x1(){
-      const d=estado.datos;
-      const pares = Object.entries(d?.caba5x1?.sabados || {}).sort((a,b)=>a[0].localeCompare(b[0]));
-      const opciones = EQUIPO_CABA_5x1.map(p=>\`<option value="\${p.id}">\${p.nombre}</option>\`).join('');
-
-      return \`
-        <div class="max-w-7xl mx-auto p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-2xl font-bold">CABA 5+1 — Rotación de Sábados</h2>
-            <button class="px-3 py-2 bg-gray-200 rounded no-print" onclick="window.print()">🖨️ Imprimir</button>
-          </div>
-          <div class="overflow-x-auto bg-white rounded shadow">
-            <table class="min-w-full text-sm">
-              <thead>
-                <tr class="bg-gray-700 text-white">
-                  <th class="p-2 text-left">Fecha (Sábado)</th>
-                  <th class="p-2 text-left">Asignado</th>
-                  <th class="p-2 text-left no-print">Editar</th>
-                </tr>
-              </thead>
-              <tbody>
-                \${pares.map(([fecha,id])=>\`
-                  <tr class="border-b">
-                    <td class="p-2 font-medium">\${fecha}</td>
-                    <td class="p-2">\${nombrePorId(id)}</td>
-                    <td class="p-2 no-print">
-                      <select class="border rounded px-2 py-1" data-sab="\${fecha}">
-                        ${opciones}
-                      </select>
-                      <button class="ml-2 px-2 py-1 bg-blue-600 text-white rounded" data-guardarsab="\${fecha}">Guardar</button>
-                    </td>
-                  </tr>\`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>\`;
-    }
-
-    /* ======== Correos CABA — semanal con edición manual ======== */
-    function vistaCorreos(){
-      const d=estado.datos;
-      const pares = Object.entries(d?.cabaCorreos?.semanas || {}).sort((a,b)=>a[0].localeCompare(b[0]));
-      const poolMan = [...EQUIPO_CABA_5x1.filter(p=>!p.excluirCorreos), ...EQUIPO_CABA_6x3.filter(p=>p.turno==='manana')];
-      const poolTar = ['fernandez','meoniz']; // por requisito
-      const optsMan = poolMan.map(p=>\`<option value="\${p.id}">\${nombrePorId(p.id)}</option>\`).join('');
-      const optsTar = poolTar.map(id=>\`<option value="\${id}">\${nombrePorId(id)}</option>\`).join('');
-
-      return \`
-        <div class="max-w-7xl mx-auto p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-2xl font-bold">Correos CABA — Asignación Semanal</h2>
-            <div class="text-sm text-gray-600">Mañana: sin Deborah • Tarde: solo Fernández/Meoniz</div>
-          </div>
-          <div class="overflow-x-auto bg-white rounded shadow">
-            <table class="min-w-full text-sm">
-              <thead>
-                <tr class="bg-gray-700 text-white">
-                  <th class="p-2 text-left">Semana (Lunes)</th>
-                  <th class="p-2">Mañana</th>
-                  <th class="p-2">Tarde</th>
-                  <th class="p-2 no-print">Editar</th>
-                </tr>
-              </thead>
-              <tbody>
-                \${pares.map(([sem,asig])=>\`
-                  <tr class="border-b">
-                    <td class="p-2 font-medium">\${sem}</td>
-                    <td class="p-2">\${nombrePorId(asig.manana)}</td>
-                    <td class="p-2">\${nombrePorId(asig.tarde)}</td>
-                    <td class="p-2 no-print">
-                      <select class="border rounded px-2 py-1" data-correos-man="\${sem}">${optsMan}</select>
-                      <select class="border rounded px-2 py-1 ml-2" data-correos-tar="\${sem}">${optsTar}</select>
-                      <button class="ml-2 px-2 py-1 bg-blue-600 text-white rounded" data-guardarcor="\${sem}">Guardar</button>
-                    </td>
-                  </tr>\`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>\`;
-    }
-
-    /* ======== Córdoba — Holdeo semanal con edición ======== */
-    function vistaCordoba(){
-      const d=estado.datos;
-      const pares = Object.entries(d?.cordobaHoldeos?.semanas || {}).sort((a,b)=>a[0].localeCompare(b[0]));
-      const opts = EQUIPO_CORDOBA.map(p=>\`<option value="\${p.id}">\${p.nombre}</option>\`).join('');
-
-      return \`
-        <div class="max-w-7xl mx-auto p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="text-2xl font-bold">Córdoba — Holdeo semanal</h2>
-            <button class="px-3 py-2 bg-gray-200 rounded no-print" onclick="window.print()">🖨️ Imprimir</button>
-          </div>
-          <div class="overflow-x-auto bg-white rounded shadow">
-            <table class="min-w-full text-sm">
-              <thead>
-                <tr class="bg-gray-700 text-white">
-                  <th class="p-2 text-left">Semana (Lunes)</th>
-                  <th class="p-2 text-left">Asignado</th>
-                  <th class="p-2 text-left no-print">Editar</th>
-                </tr>
-              </thead>
-              <tbody>
-                \${pares.map(([sem,id])=>\`
-                  <tr class="border-b">
-                    <td class="p-2 font-medium">\${sem}</td>
-                    <td class="p-2">\${nombrePorId(id)}</td>
-                    <td class="p-2 no-print">
-                      <select class="border rounded px-2 py-1" data-cba="\${sem}">${opts}</select>
-                      <button class="ml-2 px-2 py-1 bg-blue-600 text-white rounded" data-guardarcba="\${sem}">Guardar</button>
-                    </td>
-                  </tr>\`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>\`;
-    }
-
-    /* =====================  Render principal  ===================== */
-    function render(){
-      const el=document.getElementById('app');
-      if(estado.cargando){
-        el.innerHTML = \`
-          <div class="flex items-center justify-center min-h-screen">
-            <div class="text-center">
-              <div class="text-4xl mb-4">🔄</div>
-              <p class="text-xl font-semibold">Conectando…</p>
-            </div>
-          </div>\`; return;
-      }
-      let contenido='';
-      if(estado.vista==='dashboard') contenido = vistaDashboard();
-      if(estado.vista==='caba6x3')   contenido = vistaCABA6x3();
-      if(estado.vista==='caba5x1')    contenido = vistaCABA5x1();
-      if(estado.vista==='correos')    contenido = vistaCorreos();
-      if(estado.vista==='cordoba')    contenido = vistaCordoba();
-
-      el.innerHTML = header() + contenido + '<footer class="mt-8 text-center text-xs text-gray-400 pb-6">Creado por Gabriel Palazzini</footer>';
-      attachHandlers();
-    }
-
-    function attachHandlers(){
-      // Tabs
-      document.querySelectorAll('button[data-vista]').forEach(b=>b.onclick=()=>{ estado.vista=b.dataset.vista; render(); });
-      // Mes / Filtro
-      const mSel=document.getElementById('mesSel'); if(mSel){ mSel.onchange=(e)=>{ estado.mes=e.target.value; render(); }; }
-      const fSel=document.getElementById('filtroSel'); if(fSel){ fSel.onchange=(e)=>{ estado.filtro=e.target.value; render(); }; }
-      // Guardar ediciones 5x1
-      document.querySelectorAll('button[data-guardarsab]').forEach(btn=>{
-        btn.onclick = async () => {
-          const fecha=btn.dataset.guardarsab;
-          const sel=document.querySelector(\`select[data-sab="\${fecha}"]\`);
-          const val=sel.value;
-          const patch={ caba5x1:{ sabados:{ [fecha]: val } } };
-          await guardarPatch(patch);
-        };
-      });
-      // Guardar ediciones Correos
-      document.querySelectorAll('button[data-guardarcor]').forEach(btn=>{
-        btn.onclick = async () => {
-          const sem=btn.dataset.guardarcor;
-          const selM=document.querySelector(\`select[data-correos-man="\${sem}"]\`);
-          const selT=document.querySelector(\`select[data-correos-tar="\${sem}"]\`);
-          const patch={ cabaCorreos:{ semanas:{ [sem]: { manana: selM.value, tarde: selT.value } } } };
-          await guardarPatch(patch);
-        };
-      });
-      // Guardar ediciones Córdoba
-      document.querySelectorAll('button[data-guardarcba]').forEach(btn=>{
-        btn.onclick = async () => {
-          const sem=btn.dataset.guardarcba;
-          const sel=document.querySelector(\`select[data-cba="\${sem}"]\`);
-          const patch={ cordobaHoldeos:{ semanas:{ [sem]: sel.value } } };
-          await guardarPatch(patch);
-        };
-      });
-    }
-
-    /* =====================  Boot: seed + live  ===================== */
-    (async () => {
-      await ensureSeed();
-      onSnapshot(REF, (snap)=>{
-        estado.datos = snap.data();
-        estado.cargando=false;
-        render();
-      });
-      render();
-    })();
+    renderApp();
   </script>
 </body>
 </html>
