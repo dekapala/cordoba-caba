@@ -28,23 +28,56 @@
 
     // ===== ESTADO GLOBAL =====
     let licencias = {}; // { personaId: { '2025-10-15': 'vacaciones' } }
-    let tareas = { correos: {}, holdeos: {} };
+    let tareas = { 
+      correos: {}, // { '2025-W43': { mañana: 'personaId', tarde: 'personaId' } }
+      holdeos: {}  // { '2025-W43': 'personaId' }
+    };
     let vistaActual = 'dashboard';
     let mesSeleccionado = '2025-10';
     let mostrarFormLicencia = false;
+    let mostrarFormTareas = false;
     let mensaje = '';
 
     // ===== CONFIGURACIÓN =====
+    const MESES_DISPONIBLES = [
+      { key: '2025-10', nombre: 'Octubre 2025', dias: 31 },
+      { key: '2025-11', nombre: 'Noviembre 2025', dias: 30 },
+      { key: '2025-12', nombre: 'Diciembre 2025', dias: 31 },
+      { key: '2026-01', nombre: 'Enero 2026', dias: 31 },
+      { key: '2026-02', nombre: 'Febrero 2026', dias: 28 },
+      { key: '2026-03', nombre: 'Marzo 2026', dias: 31 },
+      { key: '2026-04', nombre: 'Abril 2026', dias: 30 },
+      { key: '2026-05', nombre: 'Mayo 2026', dias: 31 },
+      { key: '2026-06', nombre: 'Junio 2026', dias: 30 }
+    ];
+
     const FERIADOS = {
-      '2025-10': [12], // 12 oct - Respeto a la Diversidad
-      '2025-11': [20], // 20 nov - Soberanía Nacional
-      '2025-12': [8, 25], // 8 dic - Inmaculada, 25 dic - Navidad
-      '2026-01': [1], // 1 ene - Año Nuevo
+      '2025-10': [12], // Respeto a la Diversidad Cultural
+      '2025-11': [20], // Soberanía Nacional
+      '2025-12': [8, 25], // Inmaculada Concepción, Navidad
+      '2026-01': [1], // Año Nuevo
       '2026-02': [16, 17], // Carnaval
-      '2026-03': [24], // Memoria Verdad y Justicia
-      '2026-04': [2, 3], // Malvinas, Jueves Santo
-      '2026-05': [1, 25], // Trabajador, Revolución de Mayo
-      '2026-06': [15] // Gral. Güemes
+      '2026-03': [24], // Memoria por la Verdad y la Justicia
+      '2026-04': [2, 3], // Malvinas, Viernes Santo
+      '2026-05': [1, 25], // Día del Trabajador, Revolución de Mayo
+      '2026-06': [15, 20] // Gral. Güemes, Gral. Belgrano
+    };
+
+    const NOMBRES_FERIADOS = {
+      '2025-10-12': 'Respeto a la Diversidad Cultural',
+      '2025-11-20': 'Día de la Soberanía Nacional',
+      '2025-12-08': 'Inmaculada Concepción',
+      '2025-12-25': 'Navidad',
+      '2026-01-01': 'Año Nuevo',
+      '2026-02-16': 'Carnaval',
+      '2026-02-17': 'Carnaval',
+      '2026-03-24': 'Memoria por la Verdad y la Justicia',
+      '2026-04-02': 'Día del Veterano y Malvinas',
+      '2026-04-03': 'Viernes Santo',
+      '2026-05-01': 'Día del Trabajador',
+      '2026-05-25': 'Revolución de Mayo',
+      '2026-06-15': 'Gral. Martín Miguel de Güemes',
+      '2026-06-20': 'Gral. Manuel Belgrano'
     };
 
     const EQUIPOS = {
@@ -84,11 +117,30 @@
       ['poles']
     ];
 
-    const FRANCOS_6X3 = {
-      gabriel: [11, 12, 13, 21, 22, 23, 30, 31],
-      meoniz: [11, 12, 13, 21, 22, 23, 30, 31],
-      sergio: [6, 7, 8, 15, 16, 17, 24, 25, 26]
+    // Puntos de inicio para rotación 6x3 (primer día de franco)
+    const INICIO_6X3 = {
+      gabriel: new Date(2025, 9, 11), // 11 octubre 2025
+      meoniz: new Date(2025, 9, 11),  // 11 octubre 2025
+      sergio: new Date(2025, 9, 6)     // 6 octubre 2025
     };
+
+    function trabaja6x3(personaId, dia) {
+      const [año, mes] = mesSeleccionado.split('-');
+      const fechaActual = new Date(año, mes - 1, dia);
+      const inicioPersona = INICIO_6X3[personaId];
+      
+      if (!inicioPersona) return true;
+      
+      // Calcular días desde el inicio
+      const difDias = Math.floor((fechaActual - inicioPersona) / (24 * 60 * 60 * 1000));
+      
+      // Ciclo de 9 días: primeros 3 son franco, siguientes 6 trabaja
+      const posicionEnCiclo = ((difDias % 9) + 9) % 9;
+      
+      // Días 0, 1, 2 del ciclo = franco
+      // Días 3, 4, 5, 6, 7, 8 = trabajo
+      return posicionEnCiclo >= 3;
+    }
 
     // ===== FIREBASE SYNC =====
     onSnapshot(doc(db, 'turnos', 'datos'), (docSnap) => {
@@ -132,8 +184,18 @@
     function esFeriado(dia) { return (FERIADOS[mesSeleccionado] || []).includes(dia); }
 
     function getDiasEnMes() {
-      const [año, mes] = mesSeleccionado.split('-');
-      return new Date(año, mes, 0).getDate();
+      const mesInfo = MESES_DISPONIBLES.find(m => m.key === mesSeleccionado);
+      return mesInfo ? mesInfo.dias : 31;
+    }
+
+    function getNombreMes() {
+      const mesInfo = MESES_DISPONIBLES.find(m => m.key === mesSeleccionado);
+      return mesInfo ? mesInfo.nombre : mesSeleccionado;
+    }
+
+    function getNombreFeriado(dia) {
+      const fechaKey = getFechaKey(dia);
+      return NOMBRES_FERIADOS[fechaKey] || 'Feriado Nacional';
     }
 
     function getFechaKey(dia) {
@@ -190,6 +252,155 @@
     window.cambiarVista = (vista) => { vistaActual = vista; renderApp(); };
     window.cambiarMes = (mes) => { mesSeleccionado = mes; renderApp(); };
     window.toggleFormLicencia = () => { mostrarFormLicencia = !mostrarFormLicencia; renderApp(); };
+    window.toggleFormTareas = () => { mostrarFormTareas = !mostrarFormTareas; renderApp(); };
+
+    // Utilidades para semanas
+    function getSemanaISO(fecha) {
+      const d = new Date(fecha);
+      const dayNum = d.getDay() || 7;
+      d.setDate(d.getDate() + 4 - dayNum);
+      const yearStart = new Date(d.getFullYear(), 0, 1);
+      const weekNum = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+      return `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+    }
+
+    function getSemanaActual() {
+      return getSemanaISO(new Date());
+    }
+
+    function getFechaInicioSemana(semanaISO) {
+      const [año, semana] = semanaISO.split('-W');
+      const fecha = new Date(año, 0, 1 + (semana - 1) * 7);
+      const dia = fecha.getDay();
+      const diff = fecha.getDate() - dia + (dia === 0 ? -6 : 1);
+      return new Date(fecha.setDate(diff));
+    }
+
+    function getSemanasDelMes(mes) {
+      const [año, mesNum] = mes.split('-');
+      const diasMes = MESES_DISPONIBLES.find(m => m.key === mes)?.dias || 31;
+      const semanas = new Set();
+      
+      for (let dia = 1; dia <= diasMes; dia++) {
+        const fecha = new Date(año, mesNum - 1, dia);
+        semanas.add(getSemanaISO(fecha));
+      }
+      
+      return Array.from(semanas).sort();
+    }
+
+    // Equipos para asignación
+    const EQUIPO_CORREOS_MANANA = ['lottero', 'capdet', 'torales', 'gabriel', 'sergio'];
+    const EQUIPO_CORREOS_TARDE = ['fernandez', 'meoniz'];
+    const EQUIPO_HOLDEOS = ['guzman', 'luna', 'diaz_s', 'poles', 'diaz_j', 'allende', 'pereyra', 'spicogna', 'garrafa', 'baldamus'];
+
+    // Algoritmo de balance
+    function calcularProximaAsignacion(equipo, historialAsignaciones, semanaActual) {
+      // Contar asignaciones previas
+      const conteo = {};
+      equipo.forEach(id => conteo[id] = 0);
+      
+      Object.entries(historialAsignaciones).forEach(([semana, asignado]) => {
+        if (semana < semanaActual) {
+          if (typeof asignado === 'string') {
+            conteo[asignado] = (conteo[asignado] || 0) + 1;
+          } else if (asignado.mañana) {
+            conteo[asignado.mañana] = (conteo[asignado.mañana] || 0) + 1;
+            conteo[asignado.tarde] = (conteo[asignado.tarde] || 0) + 1;
+          }
+        }
+      });
+
+      // Buscar quién tiene menos asignaciones
+      let minAsignaciones = Infinity;
+      let candidatos = [];
+      
+      equipo.forEach(id => {
+        const count = conteo[id] || 0;
+        if (count < minAsignaciones) {
+          minAsignaciones = count;
+          candidatos = [id];
+        } else if (count === minAsignaciones) {
+          candidatos.push(id);
+        }
+      });
+
+      // Verificar disponibilidad (no estén de franco o con licencia en esa semana)
+      const fechaInicio = getFechaInicioSemana(semanaActual);
+      const candidatosDisponibles = candidatos.filter(id => {
+        // Verificar días de la semana
+        for (let i = 0; i < 7; i++) {
+          const fecha = new Date(fechaInicio);
+          fecha.setDate(fecha.getDate() + i);
+          const dia = fecha.getDate();
+          const mes = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
+          const fechaKey = `${mes}-${String(dia).padStart(2, '0')}`;
+          
+          // Si tiene licencia ese día, no está disponible
+          if (licencias[id]?.[fechaKey]) return false;
+          
+          // Si está de franco ese día, no está disponible
+          if (!trabajaDia(id, dia)) return false;
+        }
+        return true;
+      });
+
+      return candidatosDisponibles.length > 0 ? candidatosDisponibles[0] : candidatos[0];
+    }
+
+    window.asignarAutomatico = async () => {
+      const semanaActual = getSemanaActual();
+      
+      // Asignar correos CABA
+      if (!tareas.correos[semanaActual]) {
+        const mañana = calcularProximaAsignacion(EQUIPO_CORREOS_MANANA, tareas.correos, semanaActual);
+        const tarde = calcularProximaAsignacion(EQUIPO_CORREOS_TARDE, tareas.correos, semanaActual);
+        tareas.correos[semanaActual] = { mañana, tarde };
+      }
+
+      // Asignar holdeo Córdoba
+      if (!tareas.holdeos[semanaActual]) {
+        const holdeo = calcularProximaAsignacion(EQUIPO_HOLDEOS, tareas.holdeos, semanaActual);
+        tareas.holdeos[semanaActual] = holdeo;
+      }
+
+      await guardarFirebase();
+    };
+
+    window.asignarManual = async () => {
+      const semana = document.getElementById('selectSemana').value;
+      const correoMañana = document.getElementById('selectCorreoMañana').value;
+      const correoTarde = document.getElementById('selectCorreoTarde').value;
+      const holdeo = document.getElementById('selectHoldeo').value;
+
+      if (!semana) {
+        alert('Selecciona una semana');
+        return;
+      }
+
+      if (correoMañana || correoTarde) {
+        tareas.correos[semana] = { 
+          mañana: correoMañana || tareas.correos[semana]?.mañana,
+          tarde: correoTarde || tareas.correos[semana]?.tarde
+        };
+      }
+
+      if (holdeo) {
+        tareas.holdeos[semana] = holdeo;
+      }
+
+      await guardarFirebase();
+      mostrarFormTareas = false;
+      renderApp();
+    };
+
+    window.limpiarAsignacion = async (tipo, semana) => {
+      if (confirm('¿Eliminar esta asignación?')) {
+        if (tipo === 'correo') delete tareas.correos[semana];
+        if (tipo === 'holdeo') delete tareas.holdeos[semana];
+        await guardarFirebase();
+      }
+    };
 
     window.agregarLicencia = async () => {
       const persona = document.getElementById('selectPersona').value;
@@ -277,10 +488,90 @@
       `;
     }
 
+    function renderFormTareas() {
+      if (!mostrarFormTareas) return '';
+
+      const semanasDisponibles = [];
+      MESES_DISPONIBLES.forEach(mes => {
+        getSemanasDelMes(mes.key).forEach(semana => {
+          if (!semanasDisponibles.includes(semana)) {
+            semanasDisponibles.push(semana);
+          }
+        });
+      });
+
+      return `
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onclick="if(event.target === this) toggleFormTareas()">
+          <div class="bg-white rounded-lg shadow-2xl p-6 max-w-2xl w-full m-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-2xl font-bold">📋 Asignar Tareas Manualmente</h3>
+              <button onclick="toggleFormTareas()" class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
+            </div>
+
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-semibold mb-2">📅 Semana</label>
+                <select id="selectSemana" class="w-full p-3 border-2 border-gray-300 rounded-lg">
+                  <option value="">Seleccionar semana...</option>
+                  ${semanasDisponibles.map(s => {
+                    const fecha = getFechaInicioSemana(s);
+                    const fechaStr = fecha.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
+                    return `<option value="${s}">Semana ${s.split('-W')[1]} - ${fechaStr}</option>`;
+                  }).join('')}
+                </select>
+              </div>
+
+              <div class="border-t pt-4">
+                <h4 class="font-bold text-lg mb-3 text-blue-600">📧 Correos CABA</h4>
+                
+                <div class="mb-3">
+                  <label class="block text-sm font-semibold mb-2">🌅 Turno Mañana</label>
+                  <select id="selectCorreoMañana" class="w-full p-3 border-2 border-gray-300 rounded-lg">
+                    <option value="">No asignar</option>
+                    ${EQUIPO_CORREOS_MANANA.map(id => {
+                      const persona = TODOS_EMPLEADOS.find(p => p.id === id);
+                      return `<option value="${id}">${persona.nombre}</option>`;
+                    }).join('')}
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-semibold mb-2">🌆 Turno Tarde</label>
+                  <select id="selectCorreoTarde" class="w-full p-3 border-2 border-gray-300 rounded-lg">
+                    <option value="">No asignar</option>
+                    ${EQUIPO_CORREOS_TARDE.map(id => {
+                      const persona = TODOS_EMPLEADOS.find(p => p.id === id);
+                      return `<option value="${id}">${persona.nombre}</option>`;
+                    }).join('')}
+                  </select>
+                </div>
+              </div>
+
+              <div class="border-t pt-4">
+                <h4 class="font-bold text-lg mb-3 text-purple-600">🎯 Holdeo Córdoba</h4>
+                <select id="selectHoldeo" class="w-full p-3 border-2 border-gray-300 rounded-lg">
+                  <option value="">No asignar</option>
+                  ${EQUIPO_HOLDEOS.map(id => {
+                    const persona = TODOS_EMPLEADOS.find(p => p.id === id);
+                    return `<option value="${id}">${persona.nombre}</option>`;
+                  }).join('')}
+                </select>
+              </div>
+
+              <button onclick="asignarManual()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg">
+                💾 Guardar Asignación
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     function renderDashboard() {
       const hoy = new Date();
       const diaHoy = hoy.getDate();
       const mesHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+      const semanaActual = getSemanaActual();
 
       // Obtener licencias de hoy
       const licenciasHoy = [];
@@ -292,9 +583,17 @@
         }
       }
 
-      // Obtener feriados del mes actual
+      // Obtener asignaciones actuales
+      const correoActual = tareas.correos[semanaActual];
+      const holdeoActual = tareas.holdeos[semanaActual];
+
+      const getNombrePersona = (id) => {
+        const persona = TODOS_EMPLEADOS.find(p => p.id === id);
+        return persona ? persona.nombre : 'Sin asignar';
+      };
+
+      // Obtener feriados del mes seleccionado
       const feriadosMes = FERIADOS[mesSeleccionado] || [];
-      const diasMes = getDiasEnMes();
       
       // Calcular quién trabajó cada feriado
       const feriadosData = feriadosMes.map(dia => {
@@ -303,21 +602,45 @@
           const tieneLicencia = licencias[p.id]?.[fechaKey];
           return !tieneLicencia && trabajaDia(p.id, dia);
         });
-        return { dia, trabajadores };
+        return { dia, nombre: getNombreFeriado(dia), trabajadores };
+      });
+
+      // Listar todas las asignaciones del mes seleccionado
+      const semanasDelMes = getSemanasDelMes(mesSeleccionado);
+      const asignacionesDelMes = semanasDelMes.map(semana => {
+        const correo = tareas.correos[semana];
+        const holdeo = tareas.holdeos[semana];
+        const fecha = getFechaInicioSemana(semana);
+        return { semana, fecha, correo, holdeo };
       });
 
       return `
         <div class="max-w-7xl mx-auto p-6">
           <div class="flex justify-between items-center mb-6">
-            <h2 class="text-3xl font-bold text-gray-800">📊 Dashboard Principal</h2>
-            <button onclick="toggleFormLicencia()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold shadow-lg">
-              ➕ Agregar Licencia
-            </button>
+            <div>
+              <h2 class="text-3xl font-bold text-gray-800">📊 Dashboard Principal</h2>
+              <div class="mt-2">
+                <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg font-semibold bg-white">
+                  ${MESES_DISPONIBLES.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div class="flex gap-3">
+              <button onclick="toggleFormLicencia()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold shadow-lg">
+                ➕ Agregar Licencia
+              </button>
+              <button onclick="toggleFormTareas()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-bold shadow-lg">
+                📋 Asignar Tareas
+              </button>
+              <button onclick="asignarAutomatico()" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-bold shadow-lg">
+                🤖 Asignar Auto
+              </button>
+            </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow-md p-6">
-              <h3 class="text-xl font-bold mb-4 text-blue-600">🏖️ Licencias Hoy (${diaHoy})</h3>
+              <h3 class="text-xl font-bold mb-4 text-blue-600">🏖️ Licencias Hoy</h3>
               ${licenciasHoy.length > 0 ? `
                 <div class="space-y-2">
                   ${licenciasHoy.map(l => `
@@ -325,33 +648,84 @@
                       l.tipo === 'vacaciones' ? 'bg-purple-100' :
                       l.tipo === 'enfermedad' ? 'bg-red-100' : 'bg-blue-100'
                     }">
-                      <span class="font-semibold">${l.nombre}</span>
-                      <span class="ml-2 text-sm">${
+                      <span class="font-semibold text-sm">${l.nombre}</span>
+                      <span class="ml-2 text-xs">${
                         l.tipo === 'vacaciones' ? '🏖️ Vacaciones' :
                         l.tipo === 'enfermedad' ? '🏥 Enfermedad' : '📚 Examen'
                       }</span>
                     </div>
                   `).join('')}
                 </div>
-              ` : '<p class="text-gray-500">Sin licencias registradas para hoy</p>'}
+              ` : '<p class="text-gray-500 text-sm">Sin licencias hoy</p>'}
             </div>
 
             <div class="bg-white rounded-lg shadow-md p-6">
-              <h3 class="text-xl font-bold mb-4 text-purple-600">📧 Correos CABA</h3>
-              <div class="text-gray-600">
-                <p class="mb-2">🌅 <strong>Mañana:</strong> Por asignar</p>
-                <p>🌆 <strong>Tarde:</strong> Por asignar</p>
+              <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-blue-600">📧 Correos CABA</h3>
+                ${correoActual ? `<button onclick="limpiarAsignacion('correo', '${semanaActual}')" class="text-red-500 hover:text-red-700 text-sm">🗑️</button>` : ''}
+              </div>
+              <div class="space-y-2 text-sm">
+                <div class="p-2 bg-blue-50 rounded">
+                  <strong>🌅 Mañana:</strong><br>
+                  <span class="text-blue-700">${correoActual?.mañana ? getNombrePersona(correoActual.mañana) : 'Por asignar'}</span>
+                </div>
+                <div class="p-2 bg-blue-50 rounded">
+                  <strong>🌆 Tarde:</strong><br>
+                  <span class="text-blue-700">${correoActual?.tarde ? getNombrePersona(correoActual.tarde) : 'Por asignar'}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-purple-600">🎯 Holdeo Córdoba</h3>
+                ${holdeoActual ? `<button onclick="limpiarAsignacion('holdeo', '${semanaActual}')" class="text-red-500 hover:text-red-700 text-sm">🗑️</button>` : ''}
+              </div>
+              <div class="p-3 bg-purple-50 rounded">
+                <strong>Esta semana:</strong><br>
+                <span class="text-purple-700">${holdeoActual ? getNombrePersona(holdeoActual) : 'Por asignar'}</span>
               </div>
             </div>
           </div>
 
+          <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+            <h3 class="text-xl font-bold mb-4">📅 Asignaciones de ${getNombreMes()}</h3>
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="bg-gray-100">
+                    <th class="p-3 text-left">Semana</th>
+                    <th class="p-3 text-left">Correo Mañana</th>
+                    <th class="p-3 text-left">Correo Tarde</th>
+                    <th class="p-3 text-left">Holdeo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${asignacionesDelMes.map(a => `
+                    <tr class="border-t ${a.semana === semanaActual ? 'bg-green-50' : ''}">
+                      <td class="p-3 font-semibold">
+                        Sem ${a.semana.split('-W')[1]}<br>
+                        <span class="text-xs text-gray-600">${a.fecha.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}</span>
+                      </td>
+                      <td class="p-3 text-sm">${a.correo?.mañana ? getNombrePersona(a.correo.mañana) : '-'}</td>
+                      <td class="p-3 text-sm">${a.correo?.tarde ? getNombrePersona(a.correo.tarde) : '-'}</td>
+                      <td class="p-3 text-sm">${a.holdeo ? getNombrePersona(a.holdeo) : '-'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="bg-white rounded-lg shadow-md p-6">
-            <h3 class="text-xl font-bold mb-4">🎉 Feriados de ${mesSeleccionado}</h3>
+            <h3 class="text-xl font-bold mb-4">🎉 Feriados de ${getNombreMes()}</h3>
             ${feriadosData.length > 0 ? `
               <div class="space-y-4">
                 ${feriadosData.map(f => `
                   <div class="border-l-4 border-yellow-500 bg-yellow-50 p-4 rounded">
-                    <div class="font-bold text-lg mb-2">Día ${f.dia} - ${getNombreDia(f.dia)}</div>
+                    <div class="font-bold text-lg mb-2">
+                      ${f.dia} ${getNombreDia(f.dia)} - ${f.nombre}
+                    </div>
                     <div class="text-sm text-gray-700">
                       <strong>Trabajaron (${f.trabajadores.length}):</strong>
                       ${f.trabajadores.length > 0 ? 
@@ -423,7 +797,12 @@
 
       return `
         <div class="max-w-7xl mx-auto p-6">
-          <h2 class="text-3xl font-bold mb-6">${titulo}</h2>
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-3xl font-bold">${titulo}</h2>
+            <select onchange="cambiarMes(this.value)" class="px-4 py-2 border-2 border-gray-300 rounded-lg font-semibold bg-white">
+              ${MESES_DISPONIBLES.map(m => `<option value="${m.key}" ${m.key === mesSeleccionado ? 'selected' : ''}>${m.nombre}</option>`).join('')}
+            </select>
+          </div>
           
           <div class="bg-white rounded-lg shadow-md overflow-x-auto">
             <table class="w-full">
@@ -438,11 +817,15 @@
                   const nombreDia = getNombreDia(dia);
                   const esFer = feriados.includes(dia);
                   const esFin = nombreDia === 'Sáb' || nombreDia === 'Dom';
+                  const nombreFer = esFer ? getNombreFeriado(dia) : '';
                   
                   return `
                     <tr class="border-b ${esFin ? 'bg-blue-50' : ''} ${esFer ? 'bg-yellow-100' : ''}">
                       <td class="p-3 font-bold sticky left-0 ${esFin ? 'bg-blue-50' : esFer ? 'bg-yellow-100' : 'bg-white'}">
-                        ${dia} ${nombreDia} ${esFer ? '🎉' : ''}
+                        <div class="flex flex-col">
+                          <span>${dia} ${nombreDia}</span>
+                          ${esFer ? `<span class="text-xs text-yellow-700">🎉 ${nombreFer}</span>` : ''}
+                        </div>
                       </td>
                       ${equipo.map(p => renderCelda(p.id, dia)).join('')}
                     </tr>
@@ -497,7 +880,7 @@
       else if (vistaActual === 'caba5x1') contenido = renderGrilla('CABA - Sábados (5+1)', EQUIPOS.caba_5x1, '5x1');
       else if (vistaActual === 'cordoba') contenido = renderGrilla('Córdoba - Sábados', EQUIPOS.cordoba, 'cordoba');
 
-      app.innerHTML = header + contenido + renderFormLicencia();
+      app.innerHTML = header + contenido + renderFormLicencia() + renderFormTareas();
     }
 
     renderApp();
